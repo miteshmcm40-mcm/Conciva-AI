@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Mic, MessageCircle, ChevronDown, Phone, SlidersHorizontal,
-  Send, Check,
+  Send, Check, Volume2,
 } from 'lucide-react';
 import { useApp } from '../../AppContext.jsx';
 import { api } from '../../api.js';
@@ -21,39 +21,46 @@ const PREVIEW_CHAT_AGENT = {
   kbCompany: '', kbFaqs: '',
 };
 
+// Configure is tab-based: only one of these three renders at a time. Voice
+// is intentionally NOT one of these tabs — voice/chat mode is controlled
+// solely by the Voice/Chat toggle in the left panel, so a Voice entry here
+// would just duplicate that control.
 const CONFIG_TABS = [
-  { id: 'behavior',  label: 'Behavior' },
   { id: 'greeting',  label: 'Greeting' },
   { id: 'knowledge', label: 'Knowledge' },
-  { id: 'voice',     label: 'Voice' },
+  { id: 'behavior',  label: 'Behavior' },
 ];
 
-function AgentPicker({ agents, selectedId, onChange }) {
+// Compact pill version of the agent selector — sits in its own row above
+// the two-column layout (beside Hide/Show config) instead of spanning the
+// left card. Same selection state/logic as before, just smaller and given a
+// light glass/transparency treatment to match the rest of the header row.
+function AgentPillSelector({ agents, selectedId, onChange }) {
   const [open, setOpen] = useState(false);
   const current = agents.find((a) => a.id === selectedId) || agents[0];
   if (!current) return null;
   return (
-    <div className="relative inline-block">
+    <div className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="input flex items-center gap-2.5"
-        style={{ minWidth: 220 }}
+        className="flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full border backdrop-blur-sm transition-transform duration-200 hover:scale-105 active:scale-95"
+        style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,0.55)', boxShadow: '0 6px 18px -8px rgba(0,0,0,0.25)' }}
       >
         <span
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold text-xs flex-shrink-0"
+          className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0"
           style={{ background: gradientFor(current.id) }}
         >
           {(current.agentName || '?')[0].toUpperCase()}
         </span>
-        <span className="flex-1 text-left min-w-0">
-          <span className="block font-semibold text-sm truncate">{current.agentName}</span>
-          <span className="block text-xs text-mute truncate">{current.type === 'chat' ? 'Chat agent' : current.value}</span>
-        </span>
-        <ChevronDown size={14} className="text-mute flex-shrink-0" />
+        <span className="font-semibold text-sm truncate max-w-[140px]">{current.agentName}</span>
+        <ChevronDown size={14} className={`text-mute flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute left-0 top-full mt-1.5 w-full bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden z-50 py-1">
+        <div
+          className="absolute left-0 top-full mt-1.5 w-64 backdrop-blur-md border border-slate-200 rounded-xl shadow-xl overflow-hidden z-50 py-1"
+          style={{ background: 'rgba(255,255,255,0.92)' }}
+        >
           {agents.map((a) => (
             <button
               key={a.id}
@@ -79,6 +86,54 @@ function AgentPicker({ agents, selectedId, onChange }) {
   );
 }
 
+// Modern segmented control: a sliding pill glides beneath the active option
+// instead of an instant background swap (2026 UI pattern for pill-shaped
+// tab groups). Same options/value/onChange contract as the plain button
+// groups it replaces — purely how the active state is rendered, no change
+// to click handlers or state. Used for the Voice/Chat toggle (both copies)
+// and the Configure tabs, which previously duplicated near-identical markup.
+function PillTabs({ options, value, onChange, variant = 'solid', dense = false }) {
+  const trackRef = useRef(null);
+  const [indicator, setIndicator] = useState(null);
+
+  useLayoutEffect(() => {
+    const activeBtn = trackRef.current?.querySelector(`[data-pill="${value}"]`);
+    if (activeBtn) setIndicator({ left: activeBtn.offsetLeft, width: activeBtn.offsetWidth });
+  }, [value, options]);
+
+  const activeColor = variant === 'outline' ? 'var(--primary)' : 'var(--ink)';
+
+  return (
+    <div ref={trackRef} className="relative inline-flex items-center gap-1 p-1 rounded-xl w-fit" style={{ background: 'var(--surface-2)' }}>
+      {indicator && (
+        <span
+          className="absolute top-1 bottom-1 rounded-lg bg-white transition-all duration-300 ease-out pointer-events-none"
+          style={{
+            left: indicator.left,
+            width: indicator.width,
+            boxShadow: variant === 'outline' ? 'none' : '0 1px 2px rgba(15,23,42,.08)',
+            border: variant === 'outline' ? '1px solid var(--primary)' : 'none',
+          }}
+        />
+      )}
+      {options.map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          data-pill={opt.id}
+          onClick={() => onChange(opt.id)}
+          className={`relative z-10 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5 transition-colors duration-200 hover:scale-105 active:scale-95 ${dense ? 'px-3.5 py-1.5' : 'px-4 py-2'}`}
+          style={{ color: value === opt.id ? activeColor : 'var(--ink-3)' }}
+        >
+          {opt.Icon && <opt.Icon size={14} />} {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const MODE_OPTIONS = [{ id: 'voice', label: 'Voice', Icon: Mic }, { id: 'chat', label: 'Chat', Icon: MessageCircle }];
+
 export default function Playground() {
   const { currentUser } = useApp();
   const navigate = useNavigate();
@@ -96,7 +151,7 @@ export default function Playground() {
   const [mode, setMode] = useState('voice');
   const [selectedId, setSelectedId] = useState(null);
   const [configOpen, setConfigOpen] = useState(true);
-  const [configTab, setConfigTab] = useState('behavior');
+  const [configTab, setConfigTab] = useState('greeting');
   const [draft, setDraft] = useState(null);
   const [savedDraft, setSavedDraft] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -212,13 +267,26 @@ export default function Playground() {
   // A brand-new account has no voice agent yet, but the chat preview agent
   // always exists — default to chat mode instead of falling through to the
   // "No voice agent yet" empty state just because 'voice' is the default.
+  // That default should only apply once, on initial load — otherwise this
+  // effect re-fires on every mode change (including a manual click on the
+  // Voice toggle) and immediately flips back to chat before it can render.
+  const didDefaultModeRef = useRef(false);
   useEffect(() => {
     if (!loaded && !hadCachedNumbersRef.current) return;
-    const effectiveMode = mode === 'voice' && voiceAgents.length === 0 ? 'chat' : mode;
-    if (effectiveMode !== mode) setMode(effectiveMode);
-    const wantType = effectiveMode === 'chat' ? 'chat' : 'voice';
-    const stillValid = agents.find((a) => a.id === selectedId && a.type === wantType);
-    if (!stillValid) setSelectedId(agents.find((a) => a.type === wantType)?.id || null);
+    if (!didDefaultModeRef.current) {
+      didDefaultModeRef.current = true;
+      if (mode === 'voice' && voiceAgents.length === 0) { setMode('chat'); return; }
+    }
+    const wantType = mode === 'chat' ? 'chat' : 'voice';
+    const candidates = agents.filter((a) => a.type === wantType);
+    // If there's nothing of this type yet (e.g. no voice numbers added),
+    // leave the current selection alone rather than nulling it out — the
+    // page should keep showing the currently selected agent, just with the
+    // voice box in place of the chat box.
+    if (candidates.length > 0) {
+      const stillValid = candidates.find((a) => a.id === selectedId);
+      if (!stillValid) setSelectedId(candidates[0].id);
+    }
   }, [mode, loaded, voiceAgents.length]);
 
   const selected = agents.find((a) => a.id === selectedId) || null;
@@ -251,16 +319,13 @@ export default function Playground() {
   // the fetch actually finished with nothing to show; until then, a plain
   // loading placeholder — no "add a number" call to action that might not
   // even apply once the real data lands.
-  if (!draft) {
+  if (!draft || !selected) {
     return (
       <div>
-        {/* Icon + "Playground" title now live in the sticky top bar instead of
-            here — matches the main return path below. */}
-        <p className="font-semibold text-base tracking-wide" style={{ color: 'var(--ink-2)' }}>Test your agents and tune them right here — no page hopping. Free, no plan minutes used.</p>
         {!loaded ? (
-          <div className="mt-8 form-card text-center py-12 text-mute">Loading…</div>
+          <div className="form-card text-center py-12 text-mute">Loading…</div>
         ) : (
-          <div className="mt-8 form-card text-center py-12 text-mute">
+          <div className="form-card text-center py-12 text-mute">
             No voice agent yet.
             <div className="mt-3">
               <button type="button" className="btn-ghost btn-ghost-accent" onClick={() => navigate(`${basePath}/numbers`)}>Add a number</button>
@@ -399,170 +464,165 @@ export default function Playground() {
   };
 
   const fullEditorPath = isChatAgent ? `${basePath}/agent-detail-chat?n=${encodeURIComponent(selected.id)}` : `${basePath}/agent-detail?n=${encodeURIComponent(selected.id)}`;
+  const modeAgents = agents.filter((a) => a.type === mode);
+  // Falls back to the full agent list when there's nothing of this type yet
+  // (e.g. no voice numbers added) — the Agent Card should still show the
+  // currently selected agent rather than rendering nothing.
+  const cardAgents = modeAgents.length > 0 ? modeAgents : agents;
+  // Solid color pulled out of the avatar's gradient string, for the sonar
+  // rings/glow around the mic — a solid border can't use a gradient value.
+  const ringColor = gradientFor(selected.id).match(/#[0-9a-f]{6}/i)?.[0] || 'var(--primary)';
 
   return (
     <div>
-      {/* Icon + "Playground" title now live in the sticky top bar instead of here. */}
-      <p className="font-semibold text-base tracking-wide" style={{ color: 'var(--ink-2)' }}>Test your agents and tune them right here — no page hopping. Free, no plan minutes used.</p>
+      {/* Purely cosmetic keyframes for this page — entrance fade/rise, a
+          slow-breathing dark glow behind the mic avatar, and a quick rise-in
+          for new chat bubbles. Scoped here (not in a shared stylesheet) so
+          nothing outside Playground is affected. */}
+      <style>{`
+        @keyframes pg-rise   { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pg-fade   { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes pg-glow   { 0%, 100% { opacity: .25; transform: scale(0.92); } 50% { opacity: .45; transform: scale(1.05); } }
+        @keyframes pg-msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pg-sonar  { from { transform: scale(1); opacity: .5; } to { transform: scale(1.7); opacity: 0; } }
+        .pg-sonar     { animation: pg-sonar 1.8s ease-out infinite; }
+        .pg-rise      { animation: pg-rise .45s cubic-bezier(.16,1,.3,1) both; }
+        .pg-rise-1    { animation-delay: .04s; }
+        .pg-rise-2    { animation-delay: .1s; }
+        .pg-glow      { animation: pg-glow 3.2s ease-in-out infinite; }
+        .pg-msg-in    { animation: pg-msg-in .25s ease-out both; }
+        /* Fade-only (no transform) so this row never lingers with a non-none
+           transform after the animation ends — a transform, even translateY(0),
+           makes an element establish its own stacking context, which was
+           trapping the agent-selector dropdown's z-index behind the sticky
+           panels beside it. The two cards below can safely use pg-rise since
+           nothing needs to visually escape above them. */
+        .pg-fade      { animation: pg-fade .4s ease-out both; }
+      `}</style>
 
-      <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="inline-flex items-center gap-1 p-1 rounded-xl" style={{ background: 'var(--surface-2)' }}>
-            {[{ id: 'voice', label: 'Voice', Icon: Mic }, { id: 'chat', label: 'Chat', Icon: MessageCircle }].map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => setMode(m.id)}
-                className="px-4 py-2 rounded-lg text-sm font-semibold transition inline-flex items-center gap-1.5"
-                style={mode === m.id ? { background: '#fff', color: 'var(--ink)', boxShadow: '0 1px 2px rgba(15,23,42,.08)' } : { color: 'var(--ink-3)' }}
-              >
-                <m.Icon size={14} /> {m.label}
-              </button>
-            ))}
-          </div>
-          <AgentPicker agents={agents.filter((a) => a.type === mode)} selectedId={selectedId} onChange={setSelectedId} />
-        </div>
-        <button type="button" className="btn-ghost btn-ghost-accent text-sm inline-flex items-center gap-1.5" onClick={() => setConfigOpen((v) => !v)}>
+      {/* Selector + config toggle now live in their own row above the
+          two-column layout instead of inside the left card. Both keep the
+          exact same state/handlers as before, just relocated and given a
+          light glass/transparency treatment. */}
+      {/* relative + z-20: without an explicit stacking context here, Chrome's
+          compositing for the sticky panels below can render them above this
+          row's dropdown even though the dropdown has a higher z-index locally
+          — giving this row its own explicit (non-auto) z-index above the
+          panels' auto one fixes that at the shared parent level. */}
+      <div className="pg-fade relative z-20 flex items-center justify-between gap-3">
+        <AgentPillSelector agents={cardAgents} selectedId={selectedId} onChange={setSelectedId} />
+        <button
+          type="button"
+          className="btn-ghost btn-ghost-accent text-sm inline-flex items-center gap-1.5 flex-shrink-0 backdrop-blur-sm bg-white/55 transition-transform duration-200 hover:scale-105 active:scale-95"
+          onClick={() => setConfigOpen((v) => !v)}
+        >
           <SlidersHorizontal size={14} /> {configOpen ? 'Hide config' : 'Show config'}
         </button>
       </div>
 
       {/* lg:min-h ensures the grid row is always taller than the test panel
-          (which can otherwise end up taller than a short Configure tab like
-          Behavior), since a sticky item can only stay pinned while there's
-          leftover room in its own row — without this, sticky silently does
-          nothing whenever the left column happens to be the taller one. */}
-      <div className={`mt-4 grid gap-6 items-start ${configOpen ? 'lg:grid-cols-[1fr_380px] lg:min-h-[820px]' : ''}`}>
-        {/* === Test panel ================================================ */}
+          (which can otherwise end up taller than a short Configure section
+          like Behavior alone), since a sticky item can only stay pinned
+          while there's leftover room in its own row — without this, sticky
+          silently does nothing whenever the left column happens to be the
+          taller one. */}
+      <div className={`mt-4 grid gap-8 items-start ${configOpen ? 'lg:grid-cols-[1fr_400px] lg:min-h-[820px]' : ''}`}>
+        {/* === Test panel (conversation panel) =========================== */}
         {/* Sticky on desktop so it stays visible while the taller Configure
             panel next to it scrolls — no need to scroll back up to reach
             Start voice test / the transcript after editing config. */}
-        <div className="form-card lg:sticky lg:top-20">
-          <div className="flex items-center gap-2.5">
-            <span
-              className="w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-              style={{ background: gradientFor(selected.id) }}
-            >
-              {(selected.agentName || '?')[0].toUpperCase()}
-            </span>
-            <div className="min-w-0">
-              <div className="font-semibold text-sm truncate">{selected.agentName}</div>
-              <div className="text-xs text-mute truncate">
-                {isChatAgent ? 'Chat agent' : selected.value}{!isChatAgent && draft.voice ? ` · ${draft.voice}` : ''}
-              </div>
-            </div>
-          </div>
-
+        <div
+          className="pg-rise pg-rise-1 form-card p-6 rounded-2xl lg:sticky lg:top-20"
+          style={{ boxShadow: '0 1px 0 rgba(255,255,255,0.7) inset, 0 20px 45px -20px rgba(0,0,0,0.28)' }}
+        >
           {mode === 'voice' ? (
-            <div className="mt-3 flex flex-col items-center text-center py-2">
-              {/* Live Voice Status — listening/processing are brief
-                  simulated phases right after Start; speaking/error track
-                  the real playingVoice/previewError signals from
-                  useVoicePreview, so those two always take priority. */}
+            <div className="flex flex-col items-center text-center py-6">
+              {/* Reuses the same voiceStatus signal as before (still driven
+                  by testing/isListening/playingVoice/previewError) — just
+                  rendered as a small status chip (using the .dot color that
+                  was already defined per-status but previously unused) so it
+                  reads like a modern connection/trust indicator. */}
               <div
-                className="w-full max-w-xs rounded-xl border bg-white px-4 py-2.5 text-left transition-all duration-300"
-                style={{ borderColor: 'var(--line)' }}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest backdrop-blur-sm"
+                style={{
+                  color: voiceStatus === 'error' ? '#dc2626' : 'var(--ink-3)',
+                  background: voiceStatus === 'error' ? 'rgba(220,38,38,0.08)' : 'rgba(0,0,0,0.04)',
+                  border: `1px solid ${voiceStatus === 'error' ? 'rgba(220,38,38,0.25)' : 'var(--line)'}`,
+                }}
               >
-                <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full shrink-0 transition-colors duration-300 ${VOICE_STATUS_CONFIG[voiceStatus].dot}`} />
-                  <span className="text-sm font-semibold text-slate-900">{VOICE_STATUS_CONFIG[voiceStatus].title}</span>
-                </div>
-                <div className="mt-1 text-xs text-mute space-y-0.5">
-                  {voiceStatus === 'ready' && (
-                    <>
-                      <div>Microphone connected</div>
-                      <div>Voice: {draft.voice}</div>
-                    </>
-                  )}
-                  {voiceStatus === 'listening' && <div>Waiting for user input</div>}
-                  {voiceStatus === 'processing' && <div>Generating response</div>}
-                  {voiceStatus === 'speaking' && <div>AI is responding</div>}
-                  {voiceStatus === 'error' && <div>{speechError || previewError || 'Please connect your microphone.'}</div>}
-                </div>
-                {voiceStatus !== 'ready' && (
-                  <div className="mt-1.5 pt-1.5 border-t text-[11px] text-mute space-y-0.5" style={{ borderColor: 'var(--line-2)' }}>
-                    {(voiceStatus === 'processing' || voiceStatus === 'speaking') && <div>Latency: 220 ms</div>}
-                    {voiceStatus === 'speaking' && <div>Response time: 1.3 s</div>}
-                    {voiceStatus !== 'error' && <div>Session duration: {fmtSessionDuration(sessionElapsedMs)}</div>}
-                  </div>
+                <span className={`w-1.5 h-1.5 rounded-full ${VOICE_STATUS_CONFIG[voiceStatus].dot}`} />
+                {voiceStatus === 'ready' ? 'Ready to connect' : VOICE_STATUS_CONFIG[voiceStatus].title}
+              </div>
+
+              <div className="relative w-24 h-24 flex items-center justify-center mt-6">
+                {/* Soft dark glow sitting behind the avatar for depth — purely
+                    decorative, independent of the brand gradient/status colors. */}
+                <span
+                  className="pg-glow absolute -inset-3 rounded-full blur-xl"
+                  style={{ background: 'rgba(0,0,0,0.35)' }}
+                />
+                {(testing || isListening) && (
+                  <>
+                    {/* Sonar-style expanding rings, staggered, echoing the
+                        waveform/pulse feedback pattern used for "listening"
+                        states in modern voice UIs — rather than one flat ping. */}
+                    <span className="pg-sonar absolute inset-0 rounded-full border-2" style={{ borderColor: ringColor }} />
+                    <span className="pg-sonar absolute inset-0 rounded-full border-2" style={{ borderColor: ringColor, animationDelay: '.6s' }} />
+                  </>
                 )}
-              </div>
-
-              <div className="relative w-20 h-20 rounded-full flex items-center justify-center mt-3" style={{ background: 'var(--surface-tint)' }}>
                 <div
-                  className={`w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-lg ${testing ? 'animate-pulse' : ''}`}
-                  style={{ background: gradientFor(selected.id) }}
+                  className={`relative w-20 h-20 rounded-full flex items-center justify-center text-white transition-transform duration-300 hover:scale-105 ${testing || isListening ? 'animate-pulse' : ''}`}
+                  style={{ background: gradientFor(selected.id), boxShadow: '0 12px 30px -8px rgba(0,0,0,0.45)' }}
                 >
-                  {(selected.agentName || '?')[0].toUpperCase()}
+                  <Mic size={28} />
                 </div>
               </div>
 
-              {/* Live Conversation transcript — simulated (no live
-                  speech-to-text pipeline yet), appended progressively so it
-                  reads like a real conversation while the voice sample plays. */}
-              <div className="mt-3 w-full max-w-sm text-left rounded-xl border bg-white overflow-hidden" style={{ borderColor: 'var(--line)' }}>
-                <div className="px-3 py-1.5 border-b text-xs font-semibold text-slate-900" style={{ borderColor: 'var(--line)' }}>
-                  Live Conversation
-                </div>
-                <div ref={transcriptScrollRef} className="p-2.5 space-y-2 overflow-y-auto" style={{ height: 160 }}>
-                  {transcript.length === 0 ? (
-                    <p className="text-xs text-mute">
-                      Your conversation transcript will appear here once the voice test begins.
-                    </p>
-                  ) : (
-                    transcript.map((m, i) => (
-                      <div key={i} className={`animate-fade-up flex ${m.from === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[80%] ${m.from === 'user' ? 'text-right' : 'text-left'}`}>
-                          <div className="text-[10px] text-mute mb-1">
-                            {m.from === 'user' ? 'User' : 'Agent'} · {m.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                          </div>
-                          <div
-                            className={`inline-block rounded-xl px-3 py-2 text-sm text-left ${
-                              m.from === 'user'
-                                ? 'bg-slate-100 text-slate-900 rounded-tr-sm'
-                                : 'bg-lime-50 text-slate-900 rounded-tl-sm'
-                            }`}
-                          >
-                            {m.text}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+              <h3 className="mt-6 text-lg font-bold" style={{ color: 'var(--ink)' }}>Ready to test your agent</h3>
+              <p className="mt-2 text-sm text-mute max-w-sm">
+                Start a browser-based voice conversation and evaluate how your agent listens, responds, and handles interruptions.
+              </p>
+
+              {/* Change #2: same toggle, same relative position (directly
+                  above the primary action) as in the Chat view — kept in
+                  sync so switching modes stays available regardless of view. */}
+              <div className="mt-6">
+                <PillTabs options={MODE_OPTIONS} value={mode} onChange={setMode} />
               </div>
 
               <button
                 type="button"
-                className="btn-ghost btn-ghost-accent mt-3 inline-flex items-center gap-2"
+                className="btn-ghost btn-ghost-accent mt-4 rounded-full px-8 py-3 text-sm inline-flex items-center gap-2 transition-transform duration-200 hover:scale-105 active:scale-95 disabled:hover:scale-100"
                 onClick={isListening ? stopSpeechRecognition : startVoiceTest}
                 disabled={!draft.voice}
               >
-                <Phone size={15} /> {isListening ? 'Stop listening' : testing ? 'Playing…' : 'Start voice test'}
+                <Phone size={15} /> {isListening ? 'Stop listening' : testing ? 'Playing…' : 'Start test'}
               </button>
-              <p className="mt-2 text-xs text-mute max-w-xs">
-                {isListening
-                  ? 'Listening now — speak after the greeting to add your words to the transcript.'
-                  : 'Plays a sample of ' + draft.voice + '\'s voice and transcribes your microphone in supported browsers.'}
-              </p>
+
+              <div className="mt-4 flex items-center gap-3 text-xs text-mute">
+                <span className="inline-flex items-center gap-1"><Mic size={12} /> Microphone required</span>
+                <span style={{ color: 'var(--line-2)' }}>|</span>
+                <span className="inline-flex items-center gap-1"><Volume2 size={12} /> Audio plays through your browser</span>
+              </div>
+
               {/* Space is always reserved (not just when an error exists) so
                   the panel's total height stays constant whether or not
                   this line is showing — an error appearing/disappearing
                   used to change the panel's height, which (since both grid
                   columns share one row) could make it taller than the
                   Configure panel and eliminate the room sticky needs. */}
-              <p className="mt-1 text-xs text-red-600 min-h-[1em]">{speechError || previewError || ' '}</p>
+              <p className="mt-2 text-xs text-red-600 min-h-[1em]">{speechError || previewError || ' '}</p>
             </div>
           ) : (
-            <div className="mt-5">
-              <div className="min-h-[220px] max-h-[320px] overflow-y-auto rounded-xl border p-3 space-y-2" style={{ borderColor: 'var(--line)', background: 'var(--surface-2)' }}>
-                <div className="max-w-[85%] rounded-xl rounded-tl-sm px-3 py-2 text-sm bg-white" style={{ color: 'var(--ink)' }}>
+            <div>
+              <div className="min-h-[220px] max-h-[320px] overflow-y-auto rounded-xl p-4 space-y-2" style={{ background: 'var(--surface-tint)' }}>
+                <div className="pg-msg-in max-w-[85%] rounded-xl rounded-tl-sm px-3 py-2 text-sm bg-white" style={{ color: 'var(--ink)' }}>
                   {draft.greeting || 'Hi! How can I help you today?'}
                 </div>
                 {chatLog.map((m, i) => (
                   <div
                     key={i}
-                    className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${m.from === 'user' ? 'ml-auto rounded-tr-sm text-white' : 'rounded-tl-sm bg-white'}`}
+                    className={`pg-msg-in max-w-[85%] rounded-xl px-3 py-2 text-sm ${m.from === 'user' ? 'ml-auto rounded-tr-sm text-white' : 'rounded-tl-sm bg-white'}`}
                     style={
                       m.from === 'user'
                         ? { background: 'var(--primary)' }
@@ -575,11 +635,18 @@ export default function Playground() {
                   </div>
                 ))}
                 {chatBusy && (
-                  <div className="max-w-[85%] rounded-xl rounded-tl-sm px-3 py-2 text-sm bg-white text-mute italic">
+                  <div className="pg-msg-in max-w-[85%] rounded-xl rounded-tl-sm px-3 py-2 text-sm bg-white text-mute italic">
                     Thinking…
                   </div>
                 )}
               </div>
+              {/* Change #2: the Voice/Chat toggle now lives inside this card,
+                  directly above the message input, instead of above the
+                  whole grid. Same state/handler as before — only moved. */}
+              <div className="mt-4">
+                <PillTabs options={MODE_OPTIONS} value={mode} onChange={setMode} />
+              </div>
+
               <div className="mt-2 flex items-center gap-2">
                 <input
                   className="input flex-1"
@@ -589,7 +656,7 @@ export default function Playground() {
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') sendChatMessage(); }}
                 />
-                <button type="button" className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-50" style={{ background: 'var(--primary)' }} onClick={sendChatMessage} disabled={chatBusy || !chatInput.trim()}>
+                <button type="button" className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-50 transition-transform duration-200 hover:scale-110 active:scale-95" style={{ background: 'var(--primary)' }} onClick={sendChatMessage} disabled={chatBusy || !chatInput.trim()}>
                   <Send size={15} color="#fff" />
                 </button>
               </div>
@@ -599,43 +666,33 @@ export default function Playground() {
         </div>
 
         {/* === Configure panel =========================================== */}
+        {/* Tab-based nav restored: Greeting / Knowledge / Behavior only — no
+            Voice tab, since Voice/Chat mode is already controlled by the
+            toggle in the left panel. Only the active tab's section renders. */}
         {configOpen && (
-          <div className="form-card lg:sticky lg:top-20">
+          <div
+            className="pg-rise pg-rise-2 form-card p-6 rounded-2xl lg:sticky lg:top-20"
+            style={{ boxShadow: '0 1px 0 rgba(255,255,255,0.7) inset, 0 20px 45px -20px rgba(0,0,0,0.28)' }}
+          >
             <div className="flex items-center justify-between gap-2">
-              <div className="font-bold inline-flex items-center gap-1.5"><SlidersHorizontal size={15} /> Configure</div>
+              <div className="font-bold text-lg inline-flex items-center gap-1.5"><SlidersHorizontal size={16} /> Configure</div>
               <span className="pill text-[9px]" style={{ background: 'var(--line-2)', color: 'var(--ink-3)' }}>
                 {isChatAgent ? 'CHAT AGENT' : 'VOICE AGENT'}
               </span>
             </div>
 
-            <div className="mt-3 flex border-b" style={{ borderColor: 'var(--line-2)' }}>
-              {CONFIG_TABS.filter((t) => !(isChatAgent && t.id === 'voice')).map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setConfigTab(t.id)}
-                  className="flex-1 py-2.5 text-xs font-semibold border-b-2"
-                  style={configTab === t.id ? { borderColor: 'var(--primary)', color: 'var(--primary)' } : { borderColor: 'transparent', color: 'var(--ink-3)' }}
-                >
-                  {t.label}
-                </button>
-              ))}
+            <div className="mt-4">
+              <PillTabs options={CONFIG_TABS} value={configTab} onChange={setConfigTab} variant="outline" dense />
             </div>
 
-            <div className="mt-4">
-              {configTab === 'behavior' && (
-                <>
-                  <label className="field-label">System prompt</label>
-                  <textarea className="input" rows={10} value={draft.prompt} onChange={(e) => set({ prompt: e.target.value })} />
-                  <div className="field-help">{draft.prompt.length.toLocaleString()} / 50,000</div>
-                </>
-              )}
+            <div className="mt-5">
               {configTab === 'greeting' && (
                 <>
                   <label className="field-label">{isChatAgent ? 'Welcome message' : 'Greeting (first line on every call)'}</label>
                   <textarea className="input" rows={4} value={draft.greeting} onChange={(e) => set({ greeting: e.target.value })} />
                 </>
               )}
+
               {configTab === 'knowledge' && (
                 <>
                   <label className="field-label">Company info</label>
@@ -644,27 +701,15 @@ export default function Playground() {
                   <textarea className="input" rows={5} value={draft.kbFaqs} onChange={(e) => set({ kbFaqs: e.target.value })} placeholder={'Q: What are your hours?\nA: Mon–Fri 9–6.'} />
                 </>
               )}
-              {configTab === 'voice' && !isChatAgent && (
-                <div className="space-y-1 max-h-72 overflow-y-auto">
-                  {VOICES.map((v) => {
-                    const sel = draft.voice === v.value;
-                    return (
-                      <button
-                        key={v.value}
-                        type="button"
-                        onClick={() => set({ voice: v.value })}
-                        className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-left"
-                        style={sel ? { background: 'var(--surface-tint)' } : undefined}
-                      >
-                        <span>
-                          <span className="block text-sm font-semibold">{v.label}</span>
-                          <span className="block text-xs text-mute">{v.desc}</span>
-                        </span>
-                        {sel && <Check size={14} style={{ color: 'var(--primary)' }} />}
-                      </button>
-                    );
-                  })}
-                </div>
+
+              {configTab === 'behavior' && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <label className="field-label mb-0">System prompt</label>
+                    <span className="field-help">{draft.prompt.length.toLocaleString()} / 50,000</span>
+                  </div>
+                  <textarea className="input mt-1.5" rows={8} value={draft.prompt} onChange={(e) => set({ prompt: e.target.value })} />
+                </>
               )}
             </div>
 
@@ -673,8 +718,8 @@ export default function Playground() {
                 {isChatAgent ? "Preview — not saved" : dirty ? 'Unsaved' : (<><Check size={12} className="text-lime-600" /> Saved</>)}
               </span>
               <div className="flex items-center gap-2">
-                <button type="button" className="btn-ghost text-sm" disabled={!dirty} onClick={() => setDraft(savedDraft)}>Reset</button>
-                <button type="button" className="btn-ghost btn-ghost-accent text-sm" disabled={!dirty || saving || isChatAgent} onClick={save}>
+                <button type="button" className="btn-ghost text-sm transition-transform duration-200 hover:scale-105 active:scale-95 disabled:hover:scale-100" disabled={!dirty} onClick={() => setDraft(savedDraft)}>Reset</button>
+                <button type="button" className="btn-ghost btn-ghost-accent text-sm transition-transform duration-200 hover:scale-105 active:scale-95 disabled:hover:scale-100" disabled={!dirty || saving || isChatAgent} onClick={save}>
                   {saving ? 'Saving…' : 'Save'}
                 </button>
               </div>
