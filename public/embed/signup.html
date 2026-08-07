@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign up — 9278.ai Voice Agent Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700;800&display=swap">
+<style>
+  :root {
+    --teal: #14b8a6; --teal-700: #0f766e; --teal-50: #f0fdfa;
+    --slate: #0f172a; --mute: #64748b; --line: #e2e8f0; --bg: #f8fafc;
+    --grad-start: #0ea5e9; --grad-end: #8b5cf6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; font-family: 'Lexend', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--slate); }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 32px; margin: 0 0 8px; }
+  .sub { color: var(--mute); margin: 0 0 24px; font-size: 15px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 900px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  .card { background: white; border: 1px solid var(--line); border-radius: 16px; padding: 22px; cursor: pointer; transition: border-color .15s, transform .15s; position: relative; }
+  .card:hover { border-color: var(--teal); }
+  .card.selected { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(20,184,166,.18); }
+  .card.popular { background: linear-gradient(180deg, var(--teal-50), white); }
+  .tag { position: absolute; top: -12px; left: 18px; background: var(--teal); color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; letter-spacing: .04em; }
+  .name { font-size: 18px; font-weight: 700; }
+  .sub2 { color: var(--mute); font-size: 13px; margin-top: 4px; }
+  .price { margin-top: 18px; font-size: 36px; font-weight: 800; }
+  .price small { font-size: 14px; font-weight: 500; color: var(--mute); margin-left: 6px; }
+  .perks { padding: 14px 0 0; margin: 0; list-style: none; font-size: 14px; color: #334155; }
+  .perks li { padding: 4px 0; display: flex; gap: 8px; }
+  .perks li::before { content: "✓"; color: var(--teal); font-weight: 700; }
+  .form { background: white; border: 1px solid var(--line); border-radius: 16px; padding: 24px; margin-top: 28px; }
+  .field { display: block; margin-top: 14px; }
+  .field label { display: block; font-size: 12px; color: var(--mute); margin-bottom: 4px; font-weight: 600; }
+  .field input, .field select { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; font-family: inherit; }
+  .field input:focus, .field select:focus { outline: 2px solid var(--teal); border-color: var(--teal); }
+  .row { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  @media (min-width: 600px) { .row { grid-template-columns: 1fr 1fr; } }
+  .btn { display: inline-block; margin-top: 18px; padding: 12px 22px; background: linear-gradient(135deg, var(--grad-start), var(--grad-end)); color: white; border: 0; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .toggle { display: inline-flex; gap: 4px; background: white; border: 1px solid var(--line); border-radius: 999px; padding: 4px; margin-bottom: 18px; }
+  .toggle button { padding: 6px 14px; border-radius: 999px; border: 0; background: transparent; cursor: pointer; font-weight: 600; font-size: 13px; color: var(--slate); }
+  .toggle button.active { background: var(--slate); color: white; }
+  .toggle button.active.yearly { background: var(--teal); }
+  .save-badge { font-size: 10px; background: var(--teal-50); color: var(--teal-700); padding: 2px 6px; border-radius: 999px; margin-left: 4px; }
+  .toggle button.active .save-badge { background: rgba(255,255,255,.2); color: white; }
+  .err { color: #dc2626; font-size: 13px; margin-top: 8px; }
+  .ok { color: var(--teal-700); font-size: 13px; margin-top: 8px; }
+  .footer { color: var(--mute); font-size: 12px; margin-top: 18px; text-align: center; }
+  .footer a { color: var(--teal-700); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="toggle" class="toggle">
+    <button data-cycle="monthly" class="active">Monthly</button>
+    <button data-cycle="yearly">Yearly <span class="save-badge">Save 20%</span></button>
+  </div>
+
+  <div id="plans" class="grid">Loading plans…</div>
+
+  <div id="form-section" style="display:none">
+    <div class="form">
+      <div class="row">
+        <div class="field"><label>Your name</label><input id="f-name" placeholder="John Smith"></div>
+        <div class="field"><label>Company</label><input id="f-company" placeholder="Acme Industries"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Username</label><input id="f-username" placeholder="acme"></div>
+        <div class="field"><label>Email</label><input id="f-email" type="email" placeholder="you@company.com"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Phone</label><input id="f-phone" placeholder="+1 555 123 4567"></div>
+        <div class="field"><label>Password (8+ chars)</label><input id="f-password" type="password"></div>
+      </div>
+      <div class="field"><label>Greeting (first line on every call)</label>
+        <input id="f-greeting" placeholder="Hi, thanks for calling Acme. How can I help?">
+      </div>
+
+      <button id="pay" class="btn">Continue to payment →</button>
+      <div id="msg" class="err" style="display:none"></div>
+    </div>
+    <p class="footer">Hosted by <a href="https://voice.9278.ai" target="_blank">voice.9278.ai</a> ·
+      Payments via Stripe · End-to-end encrypted</p>
+  </div>
+</div>
+
+<script>
+const BASE = (window.PORTAL_BASE || window.location.origin).replace(/\/$/, '');
+
+const state = { plans: [], cycle: 'monthly', selected: null };
+const $ = (id) => document.getElementById(id);
+const usd = (n) => '$' + Number(n || 0).toLocaleString('en-US');
+
+async function loadPlans() {
+  try {
+    const r = await fetch(BASE + '/api/plans').then((res) => res.json());
+    state.plans = r.plans || [];
+    renderPlans();
+  } catch (e) {
+    $('plans').textContent = 'Could not load plans: ' + e.message;
+  }
+}
+
+function renderPlans() {
+  const grid = $('plans');
+  grid.innerHTML = '';
+  state.plans.forEach((p) => {
+    const card = document.createElement('div');
+    const isSel = state.selected === p.id;
+    card.className = 'card' + (p.tag ? ' popular' : '') + (isSel ? ' selected' : '');
+    card.onclick = () => { state.selected = p.id; renderPlans(); $('form-section').style.display = 'block'; };
+    const price = state.cycle === 'yearly' ? p.yearlyAmount : p.amount;
+    const cadence = state.cycle === 'yearly' ? '/yr' : '/mo';
+    card.innerHTML = `
+      ${p.tag ? `<span class="tag">${p.tag}</span>` : ''}
+      <div class="name">${p.label}</div>
+      <div class="sub2">${p.sub}</div>
+      <div class="price">${usd(price)}<small>${cadence}</small></div>
+      <div class="sub2">${p.min.toLocaleString('en-US')} included min · $${p.rate}/min · ${p.agents >= 999 ? 'Unlimited' : p.agents + ' agents'}</div>
+      <ul class="perks">${p.perks.map((x) => `<li>${x}</li>`).join('')}</ul>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+$('toggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  state.cycle = btn.dataset.cycle;
+  document.querySelectorAll('#toggle button').forEach((b) => b.classList.remove('active', 'yearly'));
+  btn.classList.add('active');
+  if (state.cycle === 'yearly') btn.classList.add('yearly');
+  renderPlans();
+});
+
+$('pay').addEventListener('click', async () => {
+  $('msg').style.display = 'none';
+  $('msg').textContent = '';
+
+  const plan = state.plans.find((p) => p.id === state.selected);
+  if (!plan) return showErr('Pick a plan');
+
+  const body = {
+    name:       $('f-name').value.trim(),
+    company:    $('f-company').value.trim(),
+    username:   $('f-username').value.trim(),
+    email:      $('f-email').value.trim(),
+    phone:      $('f-phone').value.trim(),
+    password:   $('f-password').value,
+    planLabel:  plan.label,
+    planAmount: state.cycle === 'yearly' ? plan.yearlyAmount : plan.amount,
+    planMin:    plan.min,
+    planRate:   plan.rate,
+    planAgents: plan.agents,
+    planCycle:  state.cycle,
+    numberPrice: 0,
+    voice:      'nova',
+    language:   'en-US',
+    agentName:  $('f-company').value.trim() + ' Receptionist',
+    greeting:   $('f-greeting').value.trim() || `Hi, thanks for calling ${$('f-company').value.trim()}. How can I help?`,
+    prompt:     '',
+    kbCompany:  '',
+    kbFaqs:     '',
+  };
+
+  if (!body.name || !body.company || !body.username || !body.email || !body.password) return showErr('Please fill all required fields');
+  if (body.password.length < 8) return showErr('Password must be 8+ chars');
+
+  $('pay').disabled = true;
+  $('pay').textContent = 'Creating checkout…';
+  try {
+    const r = await fetch(BASE + '/api/stripe/checkout-session/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const session = await r.json();
+    if (!r.ok) throw new Error(session.error || 'Checkout failed');
+    if (session.url) {
+      window.location.href = session.url;
+    } else {
+      throw new Error('No checkout URL returned');
+    }
+  } catch (e) {
+    $('pay').disabled = false;
+    $('pay').textContent = 'Continue to payment →';
+    showErr(e.message);
+  }
+});
+
+function showErr(m) {
+  $('msg').textContent = m;
+  $('msg').style.display = 'block';
+}
+
+loadPlans();
+</script>
+</body>
+</html>

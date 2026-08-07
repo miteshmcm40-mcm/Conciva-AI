@@ -1,0 +1,51 @@
+{
+  "name": "voice-agent-portal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server/index.js",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.4",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@napi-rs/canvas": "^0.1.53",
+    "@stripe/react-stripe-js": "^6.6.0",
+    "@stripe/stripe-js": "^9.8.0",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "framer-motion": "^12.43.0",
+    "lucide-react": "^1.25.0",
+    "mammoth": "^1.12.0",
+    "multer": "^2.2.0",
+    "nodemailer": "^8.0.11",
+    "openai": "^4.77.0",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.22.0",
+    "razorpay": "^2.9.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "stripe": "^22.2.0",
+    "twilio": "^5.4.0",
+    "wavesurfer.js": "^7.12.11"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.20",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "vite": "^6.4.3"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

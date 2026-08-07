@@ -1,0 +1,149 @@
+# 10 — Voice Agents & Provisioning
+
+How an AI voice agent is created, configured, and connected to a phone number — covering the provisioning pipeline, the agent identity, voices, languages, and the MCP runtime.
+
+References: `server/provision.js`, `server/mcp.js`, `server/language.js`, `server/tts.js`.
+
+---
+
+## 1. What a voice agent is
+
+When a customer buys a number + plan, the platform creates an **AI voice agent** that answers inbound calls to that number. The agent:
+
+- Speaks a configurable **greeting**.
+- Follows a **system prompt** that steers its behavior.
+- Answers from a **knowledge base** (company description + FAQs).
+- Uses a chosen **voice** and **language**.
+- Runs on **Gemini Live** in real time, with **xAI Grok** as a fallback.
+- Can perform actions such as scheduling meetings (which trigger email confirmations).
+
+Each phone number can have its **own** agent configuration — a customer with multiple DIDs can run different agents on each.
+
+---
+
+## 2. The provisioning pipeline
+
+Implemented in `server/provision.js`, kicked off by signup verification, `POST /api/provision/me`, or `POST /api/admin/provision/:userId`:
+
+```
+provisionInboundForUser(user, number)
+   │
+   ├─ 1. ensureTrunk()
+   │      Create or reuse an inbound SIP trunk for the DID.
+   │      Allows calls from the SIP gateway IP (settings/env).
+   │
+   ├─ 2. ensureAgent()
+   │      Create the agent identity on the MCP/LiveKit backend:
+   │        slug    = "<company-slug>-agent"
+   │        name, greeting, system prompt
+   │        KB      = company + FAQs
+   │        voice, language
+   │
+   ├─ 3. dispatch rule
+   │      Bind inbound calls on this DID to the agent
+   │      (so a caller reaches the right agent).
+   │
+   └─ 4. persist
+          Save livekit_trunk_id, livekit_dispatch_id, agent_id,
+          agent_slug, provisioning_status='ready', provisioned_at
+          onto users / user_numbers.
+```
+
+**On failure:** `provisioning_status` is set to an error state and `provisioning_error` records the reason, so dashboards can show it and an admin can retry. The Razorpay payment reference is stored in `provisioning_ref` to tie provisioning back to the purchase.
+
+---
+
+## 3. Agent identity & configuration
+
+Configured by the customer in the **Knowledge & Agent** tab, stored on `users` and/or `user_numbers`:
+
+| Field | Meaning |
+|-------|---------|
+| `agent_name` | Display name of the agent |
+| `agent_slug` | Runtime identifier (`<company-slug>-agent`) |
+| `greeting` | Opening line spoken on answer |
+| `prompt` | System prompt / behavior instructions |
+| `kb_company` | Company description for grounding |
+| `kb_faqs` | Q&A pairs the agent can answer from |
+| `voice` | Gemini voice name |
+| `language` | Language lock |
+| `agent_id` | Runtime reference returned by MCP |
+
+Updating any of these pushes the change to the MCP runtime so the next call reflects it.
+
+---
+
+## 4. Voices
+
+Ten Gemini voices are available (`server/tts.js`):
+
+```
+Kore, Puck, Charon, Aoede, Fenrir, Leda, Orus, Zephyr, Algieba, Sulafat
+```
+
+### Voice previews (TTS)
+Previews are generated with **Google Cloud Text-to-Speech** and cached as MP3s in `server/tts-cache/` (e.g. `Aoede_ur-IN.mp3`). The Gemini voice names are mapped onto Google Neural2/Studio timbres for the preview. A preview exists per voice × language combination, so customers can audition a voice in the language they'll deploy.
+
+`generateSample()` produces and caches a sample; repeated requests serve the cached file.
+
+---
+
+## 5. Languages
+
+The agent supports English plus ~14 Indian languages (`TTS_LANG_TEXTS` in `server/tts.js`), e.g. `en-US`, `en-IN`, and language codes like `ur-IN`, etc.
+
+**Language locking** (`server/language.js`):
+- **English** uses auto-detection.
+- **Other languages** are locked to a fixed language so the agent stays consistent on the call.
+
+Relevant helpers: `setAgentLanguage()`, `setNumberLanguage()`, `assignAgentToNumber()`, `getActiveAgentForNumber()`.
+
+---
+
+## 6. The MCP runtime layer
+
+`server/mcp.js` is the Model Context Protocol client that performs agent operations against the agent-runtime backend (LiveKit-based).
+
+- `getMcpFor(user/reseller)` resolves **which** MCP endpoint to use. Each reseller can have its own `mcp_url` + `mcp_token` on its `users` row, so a reseller's agents run against their own backend; otherwise a global default is used.
+- `callTool(...)` invokes runtime tools (create trunk, create agent, create dispatch, fetch recording URL, etc.).
+
+This is what makes the platform multi-tenant at the **runtime** level, not just the data level — different resellers can be wired to different agent backends.
+
+---
+
+## 7. Calls, recordings, summaries, meetings
+
+Once live, each call produces:
+
+- **Call log** — surfaced via `GET /api/twilio/calls`.
+- **Recording** — audio URL via `GET /api/recordings` (the URL is fetched from the MCP runtime).
+- **Transcript + summary** — `GET /api/recordings/:callId/summary`, generated by **xAI Grok** in JSON mode.
+- **Meetings** — if the agent schedules a meeting, it's recorded and an SMTP confirmation email is sent (`server/mail.js`); a signed (HMAC-SHA256) webhook records the scheduling event.
+
+---
+
+## 8. End-to-end: from purchase to a ringing agent
+
+```
+Customer buys number + plan (Razorpay verify)
+        │
+        ▼
+provisionInboundForUser():  SIP trunk → agent → dispatch rule → persist
+        │
+        ▼
+provisioning_status = 'ready'   (else error captured for retry)
+        │
+        ▼
+Caller dials the DID
+        │
+        ▼
+SIP gateway → inbound trunk → dispatch rule → the agent
+        │
+        ▼
+Gemini Live answers (greeting + prompt + KB + voice + language),
+falls back to xAI Grok if needed
+        │
+        ▼
+Call logged + recorded; transcript/summary generated;
+meetings (if any) booked + emailed; minutes metered against plan/wallet
+```

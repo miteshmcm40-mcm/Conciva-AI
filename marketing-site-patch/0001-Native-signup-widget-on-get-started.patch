@@ -1,0 +1,621 @@
+From dc8098c145bf5bfa0e7da2772d6c4bb6371339ee Mon Sep 17 00:00:00 2001
+From: bideptart <bideptartment8976@gmail.com>
+Date: Mon, 8 Jun 2026 09:23:05 +0000
+Subject: [PATCH] Native signup widget on /get-started
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Replace the iframe embed of voice.9278.io/embed/signup.html with a fully
+native Next.js client component (SignupWidget.tsx) built on the site's
+shadcn primitives. Same end-to-end flow — fetches live plans from the
+portal's /api/plans, lists available DIDs, opens Razorpay Checkout, verifies
+the payment, then hands the customer off into the portal with ?token=…
+so they land already signed in.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+---
+ app/get-started/SignupWidget.tsx | 546 +++++++++++++++++++++++++++++++
+ app/get-started/page.tsx         |  18 +-
+ 2 files changed, 551 insertions(+), 13 deletions(-)
+ create mode 100644 app/get-started/SignupWidget.tsx
+
+diff --git a/app/get-started/SignupWidget.tsx b/app/get-started/SignupWidget.tsx
+new file mode 100644
+index 0000000..e872099
+--- /dev/null
++++ b/app/get-started/SignupWidget.tsx
+@@ -0,0 +1,546 @@
++"use client"
++
++// Inline signup widget for /get-started — fetches live plans + available
++// phone numbers from the voice.9278.io portal, opens Razorpay Checkout,
++// verifies payment, then redirects the customer into the portal already
++// signed-in via ?token=. No iframe — fully native, styled with the site's
++// shadcn primitives.
++
++import { useEffect, useMemo, useState } from "react"
++import Script from "next/script"
++import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
++import { Button } from "@/components/ui/button"
++import { Input } from "@/components/ui/input"
++import { Label } from "@/components/ui/label"
++import { Badge } from "@/components/ui/badge"
++import {
++  Select,
++  SelectContent,
++  SelectItem,
++  SelectTrigger,
++  SelectValue,
++} from "@/components/ui/select"
++import { Check, Loader2 } from "lucide-react"
++import { cn } from "@/lib/utils"
++
++const PORTAL_BASE = "https://voice.9278.io"
++
++type Plan = {
++  id: string
++  label: string
++  amount: number
++  yearlyAmount: number
++  yearlySavingsInr: number
++  min: number
++  rate: number
++  overage: number
++  dids: number
++  concurrent: number
++  agents: number
++  voiceStack: string
++  support: string
++  tag: string | null
++  sub: string
++  perks: string[]
++}
++
++type AvailableNumber = {
++  phoneNumber: string
++  friendlyName?: string
++  locality?: string
++  region?: string
++  isoCountry?: string
++  priceInr?: number
++}
++
++const LANGUAGES: Array<{ value: string; label: string }> = [
++  { value: "en-IN", label: "English (India)" },
++  { value: "en-US", label: "English (US)" },
++  { value: "hi-IN", label: "Hindi (हिन्दी)" },
++  { value: "bn-IN", label: "Bengali (বাংলা)" },
++  { value: "te-IN", label: "Telugu (తెలుగు)" },
++  { value: "mr-IN", label: "Marathi (मराठी)" },
++  { value: "ta-IN", label: "Tamil (தமிழ்)" },
++  { value: "gu-IN", label: "Gujarati (ગુજરાતી)" },
++  { value: "kn-IN", label: "Kannada (ಕನ್ನಡ)" },
++  { value: "ml-IN", label: "Malayalam (മലയാളം)" },
++  { value: "pa-IN", label: "Punjabi (ਪੰਜਾਬੀ)" },
++]
++
++const inr = (n: number) => "₹" + Number(n || 0).toLocaleString("en-IN")
++
++// Razorpay's checkout.js attaches a global Razorpay constructor.
++declare global {
++  interface Window {
++    // eslint-disable-next-line @typescript-eslint/no-explicit-any
++    Razorpay: any
++  }
++}
++
++export default function SignupWidget() {
++  const [plans, setPlans] = useState<Plan[]>([])
++  const [numbers, setNumbers] = useState<AvailableNumber[]>([])
++  const [loadError, setLoadError] = useState<string | null>(null)
++
++  const [cycle, setCycle] = useState<"monthly" | "yearly">("monthly")
++  const [selectedId, setSelectedId] = useState<string>("growth")
++
++  const [form, setForm] = useState({
++    name: "",
++    company: "",
++    username: "",
++    email: "",
++    phone: "",
++    password: "",
++    number: "",
++    language: "en-IN",
++    agentName: "",
++    greeting: "",
++  })
++
++  const [submitting, setSubmitting] = useState(false)
++  const [error, setError] = useState<string | null>(null)
++
++  // Load plans + numbers in parallel on mount.
++  useEffect(() => {
++    let cancelled = false
++    ;(async () => {
++      try {
++        const [plansRes, numbersRes] = await Promise.all([
++          fetch(`${PORTAL_BASE}/api/plans`).then((r) => r.json()),
++          fetch(`${PORTAL_BASE}/api/twilio/available-numbers?country=IN`).then((r) => r.json()),
++        ])
++        if (cancelled) return
++        setPlans(plansRes.plans || [])
++        const nums: AvailableNumber[] = numbersRes.numbers || []
++        setNumbers(nums)
++        if (nums.length > 0) setForm((f) => ({ ...f, number: nums[0].phoneNumber }))
++      } catch (e) {
++        if (!cancelled) setLoadError((e as Error).message || "Could not load plans")
++      }
++    })()
++    return () => {
++      cancelled = true
++    }
++  }, [])
++
++  const selectedPlan = useMemo(() => plans.find((p) => p.id === selectedId), [plans, selectedId])
++
++  const priceFor = (p: Plan) => (cycle === "yearly" ? p.yearlyAmount : p.amount)
++
++  const update =
++    (field: keyof typeof form) =>
++    (e: React.ChangeEvent<HTMLInputElement> | React.ChangeEvent<HTMLTextAreaElement>) =>
++      setForm((f) => ({ ...f, [field]: e.target.value }))
++
++  const validateAndSubmit = async (e: React.FormEvent) => {
++    e.preventDefault()
++    setError(null)
++
++    if (!selectedPlan) return setError("Please pick a plan.")
++    if (!form.name.trim()) return setError("Tell us your name.")
++    if (!form.company.trim()) return setError("Company is required.")
++    if (!form.username.trim()) return setError("Pick a username.")
++    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return setError("Enter a valid email.")
++    if (form.password.length < 8) return setError("Password must be 8+ characters.")
++    if (!form.number) return setError("Pick a phone number.")
++
++    setSubmitting(true)
++
++    const body = {
++      name: form.name.trim(),
++      company: form.company.trim(),
++      username: form.username.trim(),
++      email: form.email.trim(),
++      phone: form.phone.trim(),
++      password: form.password,
++
++      planLabel: selectedPlan.label,
++      planAmount: priceFor(selectedPlan),
++      planMin: selectedPlan.min,
++      planRate: selectedPlan.rate,
++      planAgents: selectedPlan.agents,
++      planCycle: cycle,
++
++      number: form.number,
++      numberLoc: numbers.find((n) => n.phoneNumber === form.number)?.locality || "",
++      numberPrice: 0,
++
++      voice: "Kore",
++      language: form.language,
++      agentName: form.agentName.trim() || `${form.company.trim()} Receptionist`,
++      greeting:
++        form.greeting.trim() ||
++        `Hi, thanks for calling ${form.company.trim()}. How can I help today?`,
++      prompt: "",
++      kbCompany: "",
++      kbFaqs: "",
++    }
++
++    let order:
++      | {
++          orderId: string
++          amount: number
++          currency?: string
++          keyId: string
++          pendingToken: string
++          prefill?: { name?: string; email?: string; contact?: string }
++        }
++      | { error: string }
++
++    try {
++      order = await fetch(`${PORTAL_BASE}/api/razorpay/order/signup`, {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify(body),
++      }).then((r) => r.json())
++    } catch (e) {
++      setSubmitting(false)
++      return setError((e as Error).message || "Could not start checkout.")
++    }
++
++    if ("error" in order) {
++      setSubmitting(false)
++      return setError(order.error)
++    }
++
++    if (typeof window === "undefined" || !window.Razorpay) {
++      setSubmitting(false)
++      return setError("Payment library failed to load. Please refresh and try again.")
++    }
++
++    const rzp = new window.Razorpay({
++      key: order.keyId,
++      order_id: order.orderId,
++      amount: order.amount,
++      currency: order.currency || "INR",
++      name: "9278.io",
++      description: `${selectedPlan.label} plan`,
++      prefill: order.prefill,
++      theme: { color: "#0ea5e9" },
++      handler: async (rzpResponse: {
++        razorpay_order_id: string
++        razorpay_payment_id: string
++        razorpay_signature: string
++      }) => {
++        try {
++          const v = await fetch(`${PORTAL_BASE}/api/razorpay/verify`, {
++            method: "POST",
++            headers: { "Content-Type": "application/json" },
++            body: JSON.stringify({
++              pendingToken: order.pendingToken,
++              ...rzpResponse,
++            }),
++          }).then((r) => r.json())
++
++          if (v.token) {
++            window.location.href = `${PORTAL_BASE}/dashboard/overview?token=${encodeURIComponent(
++              v.token,
++            )}`
++          } else {
++            setSubmitting(false)
++            setError(v.error || "Payment verification failed.")
++          }
++        } catch (err) {
++          setSubmitting(false)
++          setError((err as Error).message || "Payment verification failed.")
++        }
++      },
++      modal: {
++        ondismiss: () => setSubmitting(false),
++      },
++    })
++
++    rzp.open()
++  }
++
++  if (loadError) {
++    return (
++      <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-6 text-sm text-destructive">
++        Couldn&apos;t load the signup form: {loadError}
++      </div>
++    )
++  }
++
++  if (plans.length === 0) {
++    return (
++      <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
++        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading plans…
++      </div>
++    )
++  }
++
++  return (
++    <>
++      {/* Razorpay's Checkout SDK — needed before submission. */}
++      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="afterInteractive" />
++
++      {/* Billing cycle toggle */}
++      <div className="mb-8 flex justify-center">
++        <div className="inline-flex items-center gap-1 rounded-full border border-border bg-card p-1 text-sm">
++          <button
++            type="button"
++            onClick={() => setCycle("monthly")}
++            className={cn(
++              "rounded-full px-4 py-1.5 transition",
++              cycle === "monthly" ? "bg-foreground text-background" : "text-muted-foreground",
++            )}
++          >
++            Monthly
++          </button>
++          <button
++            type="button"
++            onClick={() => setCycle("yearly")}
++            className={cn(
++              "flex items-center gap-2 rounded-full px-4 py-1.5 transition",
++              cycle === "yearly" ? "bg-sky-500 text-white" : "text-muted-foreground",
++            )}
++          >
++            Yearly
++            <span
++              className={cn(
++                "rounded-full px-2 py-0.5 text-[10px]",
++                cycle === "yearly" ? "bg-white/20 text-white" : "bg-sky-100 text-sky-700",
++              )}
++            >
++              Save 20%
++            </span>
++          </button>
++        </div>
++      </div>
++
++      {/* Per-second billing callout */}
++      <div className="mb-8 flex justify-center">
++        <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-800 dark:border-sky-800/40 dark:bg-sky-950/40 dark:text-sky-200">
++          <span>⏱️</span>
++          <span>
++            <strong>Per-second billing</strong> — pay only for the seconds you use. Industry first
++            in India.
++          </span>
++        </div>
++      </div>
++
++      {/* Plan cards */}
++      <div className="mb-10 grid gap-5 md:grid-cols-3">
++        {plans.map((p) => {
++          const selected = p.id === selectedId
++          const price = priceFor(p)
++          return (
++            <Card
++              key={p.id}
++              role="button"
++              tabIndex={0}
++              onClick={() => setSelectedId(p.id)}
++              onKeyDown={(e) => {
++                if (e.key === "Enter" || e.key === " ") {
++                  e.preventDefault()
++                  setSelectedId(p.id)
++                }
++              }}
++              className={cn(
++                "relative cursor-pointer transition focus:outline-none",
++                selected
++                  ? "border-sky-500 ring-2 ring-sky-500/30"
++                  : "hover:border-sky-300",
++              )}
++            >
++              {p.tag && (
++                <Badge className="absolute -top-3 left-4 bg-sky-500 hover:bg-sky-500">
++                  {p.tag}
++                </Badge>
++              )}
++              <CardHeader>
++                <CardTitle>{p.label}</CardTitle>
++                <p className="text-sm text-muted-foreground">{p.sub}</p>
++              </CardHeader>
++              <CardContent>
++                <div className="mb-1">
++                  <span className="text-4xl font-bold tracking-tight">{inr(price)}</span>
++                  <span className="ml-1 text-sm text-muted-foreground">
++                    /{cycle === "yearly" ? "yr" : "mo"}
++                  </span>
++                </div>
++                {cycle === "yearly" && (
++                  <div className="mb-2 text-xs text-sky-700 dark:text-sky-300">
++                    Save {inr(p.yearlySavingsInr)} vs monthly
++                  </div>
++                )}
++                <div className="mb-4 text-xs text-muted-foreground">
++                  {p.min.toLocaleString("en-IN")} min · {inr(p.rate)}/min ·{" "}
++                  {p.agents >= 999 ? "Unlimited" : `${p.agents} agents`}
++                </div>
++                <ul className="space-y-2 text-sm">
++                  {p.perks.map((perk) => (
++                    <li key={perk} className="flex items-start gap-2">
++                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-sky-500" />
++                      <span>{perk}</span>
++                    </li>
++                  ))}
++                </ul>
++              </CardContent>
++            </Card>
++          )
++        })}
++      </div>
++
++      {/* Signup form */}
++      <Card>
++        <CardHeader>
++          <CardTitle>Create your account</CardTitle>
++          <p className="text-sm text-muted-foreground">
++            Selected:{" "}
++            <strong>
++              {selectedPlan?.label} ·{" "}
++              {selectedPlan && inr(priceFor(selectedPlan))}
++              {cycle === "yearly" ? "/yr" : "/mo"}
++            </strong>
++          </p>
++        </CardHeader>
++        <form onSubmit={validateAndSubmit}>
++          <CardContent className="grid gap-4 md:grid-cols-2">
++            <Field id="name" label="Your name" value={form.name} onChange={update("name")} />
++            <Field
++              id="company"
++              label="Company"
++              value={form.company}
++              onChange={update("company")}
++            />
++            <Field
++              id="username"
++              label="Username"
++              value={form.username}
++              onChange={update("username")}
++            />
++            <Field
++              id="email"
++              label="Work email"
++              type="email"
++              value={form.email}
++              onChange={update("email")}
++            />
++            <Field id="phone" label="Phone (optional)" value={form.phone} onChange={update("phone")} />
++            <Field
++              id="password"
++              label="Password (8+ chars)"
++              type="password"
++              value={form.password}
++              onChange={update("password")}
++            />
++
++            <div className="md:col-span-1">
++              <Label htmlFor="number" className="mb-1.5 block">
++                Phone number to attach
++              </Label>
++              <Select
++                value={form.number}
++                onValueChange={(v) => setForm((f) => ({ ...f, number: v }))}
++              >
++                <SelectTrigger id="number">
++                  <SelectValue placeholder="Pick a number" />
++                </SelectTrigger>
++                <SelectContent>
++                  {numbers.map((n) => (
++                    <SelectItem key={n.phoneNumber} value={n.phoneNumber}>
++                      {n.phoneNumber} {n.locality ? `· ${n.locality}` : ""}
++                    </SelectItem>
++                  ))}
++                </SelectContent>
++              </Select>
++            </div>
++
++            <div className="md:col-span-1">
++              <Label htmlFor="language" className="mb-1.5 block">
++                Agent language
++              </Label>
++              <Select
++                value={form.language}
++                onValueChange={(v) => setForm((f) => ({ ...f, language: v }))}
++              >
++                <SelectTrigger id="language">
++                  <SelectValue />
++                </SelectTrigger>
++                <SelectContent>
++                  {LANGUAGES.map((l) => (
++                    <SelectItem key={l.value} value={l.value}>
++                      {l.label}
++                    </SelectItem>
++                  ))}
++                </SelectContent>
++              </Select>
++            </div>
++
++            <Field
++              id="agentName"
++              label="Agent name (optional)"
++              value={form.agentName}
++              onChange={update("agentName")}
++              placeholder={form.company ? `${form.company} Receptionist` : "Acme Receptionist"}
++              wrapperClassName="md:col-span-2"
++            />
++            <Field
++              id="greeting"
++              label="Greeting (optional — first line on every call)"
++              value={form.greeting}
++              onChange={update("greeting")}
++              placeholder={
++                form.company
++                  ? `Hi, thanks for calling ${form.company}. How can I help?`
++                  : "Hi, thanks for calling…"
++              }
++              wrapperClassName="md:col-span-2"
++            />
++          </CardContent>
++
++          <CardFooter className="flex flex-col items-stretch gap-3">
++            {error && (
++              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
++                {error}
++              </div>
++            )}
++            <Button type="submit" size="lg" disabled={submitting} className="w-full">
++              {submitting ? (
++                <>
++                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Opening payment…
++                </>
++              ) : (
++                <>
++                  Continue to payment — {selectedPlan && inr(priceFor(selectedPlan))}
++                </>
++              )}
++            </Button>
++            <p className="text-center text-xs text-muted-foreground">
++              Secured by Razorpay · End-to-end encrypted · 30-day sessions
++            </p>
++          </CardFooter>
++        </form>
++      </Card>
++    </>
++  )
++}
++
++function Field({
++  id,
++  label,
++  value,
++  onChange,
++  type = "text",
++  placeholder,
++  wrapperClassName,
++}: {
++  id: string
++  label: string
++  value: string
++  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
++  type?: string
++  placeholder?: string
++  wrapperClassName?: string
++}) {
++  return (
++    <div className={wrapperClassName}>
++      <Label htmlFor={id} className="mb-1.5 block">
++        {label}
++      </Label>
++      <Input id={id} type={type} value={value} onChange={onChange} placeholder={placeholder} />
++    </div>
++  )
++}
+diff --git a/app/get-started/page.tsx b/app/get-started/page.tsx
+index fdaa6de..76f64eb 100644
+--- a/app/get-started/page.tsx
++++ b/app/get-started/page.tsx
+@@ -1,9 +1,9 @@
+ import type { Metadata } from "next"
+-import { Suspense } from "react"
+ import { SiteHeader } from "@/components/site-header"
+ import { SiteFooter } from "@/components/site-footer"
+ import { pageSeo } from "@/lib/seo"
+ import { BreadcrumbJsonLd } from "@/components/seo/jsonld"
++import SignupWidget from "./SignupWidget"
+ 
+ export const metadata: Metadata = pageSeo({
+   title: "Get started — launch your AI voice agent",
+@@ -35,24 +35,16 @@ export default function GetStartedPage() {
+               Spin up your voice agent.
+             </h1>
+             <p className="mt-4 text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
+-              Pick a starting credit, optionally add a phone number, and tell us what your agent should do. You&apos;ll
+-              be live in under 5 minutes — no contracts, no setup fee.
++              Pick a plan, choose a phone number, and tell us how your AI receptionist should
++              greet your callers. You&apos;ll be live in under 5 minutes — no contracts, per-second
++              billing.
+             </p>
+           </div>
+         </div>
+       </section>
+ 
+       <section className="mx-auto w-full max-w-6xl px-4 py-14 md:px-6 md:py-20">
+-        <Suspense fallback={<div className="text-sm text-muted-foreground">Loading…</div>}>
+-          <iframe
+-            src="https://voice.9278.io/embed/signup.html"
+-            width="100%"
+-            height={1000}
+-            style={{ border: 0, maxWidth: 1100, display: "block", margin: "0 auto" }}
+-            allow="payment"
+-            title="9278 Voice signup"
+-          />
+-        </Suspense>
++        <SignupWidget />
+       </section>
+ 
+       <SiteFooter />
+-- 
+2.43.0
+
