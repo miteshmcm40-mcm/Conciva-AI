@@ -38,7 +38,10 @@ if (process.env.PG_HOST) {
   });
 } else {
   const { PGlite } = await import('@electric-sql/pglite');
-  const dataDir = process.env.PGLITE_DATA_DIR || path.join(__dirname, '..', '.data', 'pglite');
+  const defaultDataDir = process.env.VERCEL
+    ? path.join('/tmp', 'pglite')
+    : path.join(__dirname, '..', '.data', 'pglite');
+  const dataDir = process.env.PGLITE_DATA_DIR || defaultDataDir;
   fs.mkdirSync(dataDir, { recursive: true });
   const db = new PGlite(dataDir);
   await db.waitReady;
