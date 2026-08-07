@@ -38,11 +38,6 @@ if (process.env.PG_HOST) {
   });
 } else {
   const { PGlite } = await import('@electric-sql/pglite');
-  // On Vercel (and most serverless platforms) the deployed bundle directory
-  // is read-only — only /tmp is writable, and /tmp itself is wiped between
-  // cold starts, so this is a scratch/demo database there, not persistent
-  // storage. Set PG_HOST (a real Postgres) for any deployment that needs
-  // data to survive across invocations.
   const defaultDataDir = process.env.VERCEL
     ? path.join('/tmp', 'pglite')
     : path.join(__dirname, '..', '.data', 'pglite');
