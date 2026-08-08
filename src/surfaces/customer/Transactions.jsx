@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Receipt, Wallet, CheckCircle2 } from 'lucide-react';
+import {
+  Receipt, Wallet, CheckCircle2, Globe, Search, SlidersHorizontal, Copy, Check,
+} from 'lucide-react';
 import { api } from '../../api.js';
 import { useApp } from '../../AppContext.jsx';
 import DateRangePicker, { todayRange } from '../../components/DateRangePicker.jsx';
@@ -14,7 +16,7 @@ import { readCache, writeCache } from '../../utils/swrCache.js';
 
 const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const BRAND_GRADIENT = 'bg-[linear-gradient(135deg,#6fa524_0%,#5c8a1e_50%,#4d7c0f_100%)]';
+const BRAND_GRADIENT = 'bg-[linear-gradient(135deg,var(--grad-start)_0%,var(--grad-mid)_50%,var(--grad-end)_100%)]';
 
 // Razorpay Checkout loader — same pattern used by Billing.jsx's Wallet tab
 // (each page that needs it loads its own copy rather than sharing a module,
@@ -76,11 +78,11 @@ function AddFundsModal({ onClose, onSuccess }) {
         key: order.keyId,
         amount: order.amount,
         currency: order.currency,
-        name: 'KallUS',
+        name: 'Conciva AI',
         description: `Wallet top-up · ${money(order.pack.amount)}`,
         order_id: order.orderId,
         prefill: order.prefill,
-        theme: { color: '#4d7c0f' },
+        theme: { color: '#c2410c' },
         handler: async (response) => {
           try {
             await api('/api/razorpay/verify/topup', {
@@ -130,7 +132,7 @@ function AddFundsModal({ onClose, onSuccess }) {
                 onClick={() => { setSelectedPackId(p.id); setCustomAmount(''); }}
                 disabled={busy}
                 className={`rounded-lg border-2 p-3 text-center transition ${
-                  isPicked ? 'border-lime-500 ring-2 ring-lime-100 bg-lime-50/50' : 'border-slate-200 bg-white hover:border-lime-300'
+                  isPicked ? 'border-orange-500 ring-2 ring-orange-100 bg-orange-50/50' : 'border-slate-200 bg-white hover:border-orange-300'
                 } disabled:opacity-60 disabled:cursor-not-allowed`}
               >
                 <div className="text-lg font-extrabold text-slate-900">{money(p.amount)}</div>
@@ -189,9 +191,9 @@ const dateKey = (d) => {
 // Human label + pill colour for each transaction kind. Covers both the wallet
 // ledger kinds and the synthesised per-DID plan row.
 const KIND_META = {
-  plan:              { label: 'Plan + DID',      pill: 'bg-lime-100 text-lime-700' },
-  'new-number-plan': { label: 'New plan + DID',  pill: 'bg-lime-100 text-lime-700' },
-  'plan-change':     { label: 'Plan change',     pill: 'bg-lime-100 text-lime-700' },
+  plan:              { label: 'Plan + DID',      pill: 'bg-orange-100 text-orange-700' },
+  'new-number-plan': { label: 'New plan + DID',  pill: 'bg-orange-100 text-orange-700' },
+  'plan-change':     { label: 'Plan change',     pill: 'bg-orange-100 text-orange-700' },
   'plan-restart':    { label: 'Plan restart',    pill: 'bg-amber-100 text-amber-700' },
   topup:             { label: 'Wallet top-up',   pill: 'bg-emerald-100 text-emerald-700' },
   auto_recharge:     { label: 'Auto-recharge',   pill: 'bg-indigo-100 text-indigo-700' },
@@ -203,13 +205,49 @@ const KIND_META = {
 };
 const kindMeta = (k) => KIND_META[k] || { label: k || 'Transaction', pill: 'bg-slate-100 text-slate-700' };
 
-const STATUS_PILL = {
-  success:   'bg-emerald-100 text-emerald-700',
-  succeeded: 'bg-emerald-100 text-emerald-700',
-  paid:      'bg-emerald-100 text-emerald-700',
-  pending:   'bg-amber-100 text-amber-700',
-  failed:    'bg-red-100 text-red-700',
+// Status pill colour + dot — small leading dot gives each row a quicker
+// scannable signal than colour alone (helps colour-blind users too).
+const STATUS_META = {
+  success:   { label: 'Success', pill: 'bg-emerald-100 text-emerald-700', dot: '#059669' },
+  succeeded: { label: 'Success', pill: 'bg-emerald-100 text-emerald-700', dot: '#059669' },
+  paid:      { label: 'Paid',    pill: 'bg-emerald-100 text-emerald-700', dot: '#059669' },
+  pending:   { label: 'Pending', pill: 'bg-amber-100 text-amber-700',    dot: '#d97706' },
+  failed:    { label: 'Failed',  pill: 'bg-red-100 text-red-700',        dot: '#dc2626' },
 };
+const statusMeta = (s) => {
+  const key = String(s || 'success').toLowerCase();
+  return STATUS_META[key] || { label: s || 'Success', pill: 'bg-slate-100 text-slate-700', dot: '#64748b' };
+};
+
+function StatusPill({ status }) {
+  const meta = statusMeta(status);
+  return (
+    <span className={`pill text-[10px] uppercase tracking-wider font-semibold inline-flex items-center gap-1.5 ${meta.pill}`}>
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.dot }} />
+      {meta.label}
+    </span>
+  );
+}
+
+// Click-to-copy for the Ref column — pure client-side clipboard nicety, no
+// new functionality beyond what the column already displayed.
+function RefCell({ value }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return <span className="text-mute font-mono text-xs">—</span>;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch { /* clipboard unavailable — no-op */ }
+  };
+  return (
+    <button type="button" onClick={copy} className="txn-ref-btn" title="Copy reference">
+      <span className="truncate">{value}</span>
+      {copied ? <Check size={12} className="shrink-0" style={{ color: 'var(--primary)' }} /> : <Copy size={12} className="shrink-0" />}
+    </button>
+  );
+}
 
 export default function Transactions() {
   const { currentUser } = useApp();
@@ -227,7 +265,7 @@ export default function Transactions() {
   // Payment provider label for the "Total paid via …" line + Provider column.
   const [provider, setProvider] = useState('Razorpay');
 
-  const portal = currentUser?.resellerPortal || 'kallus.io';
+  const portal = currentUser?.resellerPortal || 'conciva.ai';
   // This page is reused as-is under /admin (Admin.jsx also renders it) — the
   // empty-state links below must resolve against whichever shell is mounted.
   const isAdminTier = currentUser?.userType === 'superadmin' || currentUser?.userType === 'admin';
@@ -323,23 +361,23 @@ export default function Transactions() {
     <div>
       {/* Icon + "Transactions" title now live in the sticky top bar instead of here. */}
       <div className="flex items-start justify-between flex-wrap gap-3">
-        <p className="text-base font-semibold tracking-wide animate-fade-up" style={{ color: 'var(--ink-2)' }}>
-          Every payment from this account — plan purchases, plan changes, restarts, and wallet top-ups.
-          {loading && txns !== null && <span className="font-normal text-xs text-mute ml-2">Refreshing…</span>}
-        </p>
+        <div>
+          <div className="text-[11px] font-mono uppercase tracking-widest font-bold" style={{ color: 'var(--primary)' }}>
+            Payment history
+          </div>
+          <p className="mt-1 text-sm" style={{ color: 'var(--ink-3)' }}>
+            Every payment from this account — plan purchases, plan changes, restarts, and wallet top-ups.
+            {loading && txns !== null && <span className="ml-2 text-xs text-mute">Refreshing…</span>}
+          </p>
+        </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={exportCsv}
-            disabled={!filtered.length}
-            className="btn-ghost text-sm transition-all duration-150 hover:!bg-[var(--primary)] hover:!text-white hover:!border-[var(--primary)] hover:scale-105 active:scale-95 disabled:opacity-90"
-          >
+          <button type="button" onClick={() => setShowAddFunds(true)} className="btn-ghost btn-ghost-accent text-sm inline-flex items-center gap-1.5">
+            <Wallet size={14} /> Add Funds
+          </button>
+          <button onClick={exportCsv} disabled={!filtered.length} className="btn-ghost text-sm">
             Export CSV
           </button>
-          <button
-            onClick={load}
-            disabled={loading}
-            className="btn-ghost text-sm transition-all duration-150 hover:!bg-[var(--primary)] hover:!text-white hover:!border-[var(--primary)] hover:scale-105 active:scale-95 disabled:opacity-90"
-          >
+          <button onClick={load} disabled={loading} className="btn-ghost text-sm">
             {loading ? 'Loading…' : '↻ Refresh'}
           </button>
         </div>
@@ -349,57 +387,72 @@ export default function Transactions() {
         <div className="mt-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">⚠ {err}</div>
       )}
 
-      {/* Stat cards */}
-      <div className="mt-6 grid sm:grid-cols-3 gap-4">
-        <div className="form-card">
-          <div className="text-xs text-mute uppercase tracking-wider font-semibold">Transactions</div>
-          <div className="mt-2 text-3xl font-bold text-slate-900 dark:text-slate-100">
-            {txns === null ? '—' : filtered.length}
+      {/* Summary bar — one unified card instead of three separate boxes */}
+      <div className="mt-6 form-card txn-summary">
+        <div className="txn-metric">
+          <div className="txn-metric-icon"><Receipt size={18} /></div>
+          <div className="min-w-0">
+            <div className="txn-metric-label">Transactions</div>
+            <div className="txn-metric-value">{txns === null ? '—' : filtered.length}</div>
           </div>
         </div>
-        <div className="form-card">
-          <div className="text-xs text-mute uppercase tracking-wider font-semibold">Total paid</div>
-          <div className="mt-2 text-3xl font-bold text-lime-600 dark:text-lime-400">
-            {totalPaid > 0 ? money(totalPaid) : '—'}
+        <div className="txn-metric-divider" />
+        <div className="txn-metric">
+          <div className="txn-metric-icon"><Wallet size={18} /></div>
+          <div className="min-w-0">
+            <div className="txn-metric-label">Total paid</div>
+            <div className="txn-metric-value">{totalPaid > 0 ? money(totalPaid) : '—'}</div>
+            <div className="text-xs text-mute mt-0.5">via {provider}</div>
           </div>
-          <div className="text-xs text-mute mt-1">via {provider}</div>
         </div>
-        <div className="form-card">
-          <div className="text-xs text-mute uppercase tracking-wider font-semibold">Portal</div>
-          <div className="mt-2 text-2xl font-bold text-lime-600 dark:text-lime-400 font-mono break-all">
-            {portal}
+        <div className="txn-metric-divider" />
+        <div className="txn-metric">
+          <div className="txn-metric-icon"><Globe size={18} /></div>
+          <div className="min-w-0">
+            <div className="txn-metric-label">Portal</div>
+            <div className="txn-metric-value font-mono truncate" style={{ fontSize: 18 }}>{portal}</div>
           </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="mt-6 form-card">
-        <DateRangePicker from={range.from} to={range.to} onChange={setRange} />
+      <div className="mt-4 form-card">
+        <div className="flex items-center gap-2 mb-4">
+          <SlidersHorizontal size={13} style={{ color: 'var(--primary)' }} />
+          <span className="text-[11px] font-mono uppercase tracking-widest font-bold" style={{ color: 'var(--ink-2)' }}>Filters</span>
+        </div>
+        <DateRangePicker from={range.from} to={range.to} onChange={setRange} accent="orange" />
         <div className="mt-4 grid sm:grid-cols-2 gap-3">
           <div>
             <label className="field-label">Kind</label>
-            <select className="input text-sm py-1.5" value={kind} onChange={(e) => setKind(e.target.value)}>
-              <option value="all">All kinds ({txns ? txns.length : 0})</option>
-              {kindCounts.map(([k, c]) => (
-                <option key={k} value={k}>{kindMeta(k).label} ({c})</option>
-              ))}
-            </select>
+            <div className="acct-input-wrap">
+              <SlidersHorizontal size={14} className="acct-input-icon" />
+              <select className="input acct-input-icon-pad text-sm py-1.5" value={kind} onChange={(e) => setKind(e.target.value)}>
+                <option value="all">All kinds ({txns ? txns.length : 0})</option>
+                {kindCounts.map(([k, c]) => (
+                  <option key={k} value={k}>{kindMeta(k).label} ({c})</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div>
             <label className="field-label">Search</label>
-            <input
-              type="search"
-              className="input text-sm py-1.5"
-              placeholder="description, ref, phone…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+            <div className="acct-input-wrap">
+              <Search size={14} className="acct-input-icon" />
+              <input
+                type="search"
+                className="input acct-input-icon-pad text-sm py-1.5"
+                placeholder="description, ref, phone…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
           </div>
         </div>
       </div>
 
       {/* Transactions table */}
-      <div className="mt-6 form-card p-0 overflow-x-auto">
+      <div className="mt-4 form-card p-0 overflow-x-auto">
         <table className="w-full text-sm table-fixed">
           <thead>
             <tr>
@@ -407,9 +460,9 @@ export default function Transactions() {
               <th className="w-[140px]">Kind</th>
               <th>Description</th>
               <th className="w-[90px] text-right">Amount</th>
-              <th className="w-[90px] text-center">Status</th>
+              <th className="w-[100px] text-center">Status</th>
               <th className="w-[100px]">Provider</th>
-              <th className="w-[180px]">Ref</th>
+              <th className="w-[170px]">Ref</th>
             </tr>
           </thead>
           <tbody>
@@ -421,17 +474,17 @@ export default function Transactions() {
                 <td colSpan={7} className="p-0">
                   {(txns && txns.length === 0) ? (
                     <div className="animate-fade-up flex flex-col items-center text-center px-6 py-14">
-                      {/* Illustration — wallet + checkmark badge, soft green accents, no emoji */}
+                      {/* Illustration — wallet + checkmark badge, brand-orange accents, no emoji */}
                       <div className="relative w-28 h-28 flex items-center justify-center rounded-full" style={{ background: 'var(--surface-tint)' }}>
                         <Wallet className="w-12 h-12" style={{ color: 'var(--primary)' }} strokeWidth={1.5} />
                         <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm">
-                          <CheckCircle2 className="w-6 h-6 text-lime-600" strokeWidth={1.75} />
+                          <CheckCircle2 className="w-6 h-6" style={{ color: 'var(--primary)' }} strokeWidth={1.75} />
                         </span>
                       </div>
 
-                      <h3 className="mt-5 text-lg font-bold text-slate-900">No Transactions Yet</h3>
+                      <h3 className="mt-5 text-lg font-bold text-slate-900">No transactions yet</h3>
                       <p className="mt-2 text-sm text-mute max-w-sm">
-                        Your payments, wallet top-ups, plan purchases, and renewals will appear here once you start using KallUS.
+                        Your payments, wallet top-ups, plan purchases, and renewals will appear here once you start using Conciva AI.
                       </p>
 
                       <div className="mt-6 flex items-center gap-3 flex-wrap justify-center">
@@ -440,9 +493,9 @@ export default function Transactions() {
                       </div>
 
                       <div className="mt-4 flex items-center gap-3 text-xs text-mute">
-                        <Link to={`${basePath}/billing?tab=plans`} className="hover:text-lime-700 hover:underline">View Pricing</Link>
+                        <Link to={`${basePath}/billing?tab=plans`} className="hover:underline" style={{ color: 'var(--primary)' }}>View Pricing</Link>
                         <span aria-hidden="true">•</span>
-                        <Link to={`${basePath}/billing`} className="hover:text-lime-700 hover:underline">Learn about Billing</Link>
+                        <Link to={`${basePath}/billing`} className="hover:underline" style={{ color: 'var(--primary)' }}>Learn about Billing</Link>
                       </div>
                     </div>
                   ) : (
@@ -479,12 +532,12 @@ export default function Transactions() {
                     {t.amount ? money(t.amount) : '—'}
                   </td>
                   <td className="py-3 px-4 text-center">
-                    <span className={`pill text-[10px] uppercase tracking-wider ${STATUS_PILL[String(t.status).toLowerCase()] || 'bg-slate-100 text-slate-700'}`}>
-                      {t.status || 'success'}
-                    </span>
+                    <StatusPill status={t.status} />
                   </td>
                   <td className="py-3 px-4 text-mute whitespace-nowrap truncate">{t.method || provider}</td>
-                  <td className="py-3 px-4 text-mute font-mono text-xs whitespace-nowrap">{t.ref || '—'}</td>
+                  <td className="py-3 px-4">
+                    <RefCell value={t.ref} />
+                  </td>
                 </tr>
               );
             })}

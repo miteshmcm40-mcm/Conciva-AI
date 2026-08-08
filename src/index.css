@@ -168,46 +168,133 @@ h1, h2, h3, h4, h5, h6 {
       0 1px 2px rgba(15,23,42,0.04),
       0 10px 30px -16px rgba(15,23,42,0.10);
   }
-  /* Account page badge discs (avatar, section icons, role pill). Idle they
-     are a thin orange outline; on hover the ring thickens and a soft orange
-     glow blooms outward. `box-shadow` does the thickening rather than
-     `border-width` so nothing reflows/jumps on hover. */
-  .disc-ring {
-    border: 1px solid #C2410C;
-    animation: disc-glow 2.6s ease-in-out infinite alternate;
+  /* === ACCOUNT PAGE ===============================================
+     Scoped to src/surfaces/customer/Account.jsx only. */
+  .acct-hero {
+    display: flex;
+    align-items: center;
+    gap: 24px;
   }
-  /* A continuous glow that breathes between soft and strong — it never drops
-     to zero, so the ring is always lit. No transform, so no heartbeat "thump".
-     Every disc uses the same duration with no delay and they all mount in the
-     same render, so the four stay in step with each other. */
-  @keyframes disc-glow {
-    from { box-shadow: 0 0 0 2px rgba(194, 65, 12, 0.55), 0 0 10px 3px rgba(194, 65, 12, 0.22); }
-    to   { box-shadow: 0 0 0 3px rgba(194, 65, 12, 1.00), 0 0 22px 7px rgba(194, 65, 12, 0.42); }
+  .acct-avatar {
+    width: 96px; height: 96px; border-radius: 9999px; flex-shrink: 0;
+    display: grid; place-items: center;
+    font-size: 28px; font-weight: 800; color: #ffffff;
+    background: linear-gradient(135deg, var(--grad-start), var(--grad-end));
+    box-shadow: 0 12px 30px -10px rgba(194,65,12,0.55), 0 0 0 4px #ffffff, 0 0 0 5px var(--line);
   }
-  /* Hover overrides the loop with a steady, stronger ring. */
-  .disc-ring:hover {
-  animation: none;
-  transform: translateY(-1px);
-  box-shadow:
-    0 0 0 3px #EA580C,
-    0 0 0 7px rgba(234, 88, 12, 0.22),
-    0 0 20px 6px rgba(234, 88, 12, 0.30);
-  transition: box-shadow 260ms ease, transform 260ms ease;
-}
-  @media (prefers-reduced-motion: reduce) {
-    .disc-ring { animation: none; }
-    .disc-ring:hover { transform: none; transition: none; }
+  .acct-role-pill {
+    font-size: 11px; font-weight: 700; text-transform: capitalize;
+    padding: 4px 12px; border-radius: 9999px;
+    background: linear-gradient(135deg, rgba(255,138,26,0.16), rgba(194,65,12,0.10));
+    color: #9a3412;
+    border: 1px solid rgba(194,65,12,0.25);
+  }
+  .acct-meta-row {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 16px;
+    margin-top: 10px;
+  }
+  .acct-meta-item {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--ink-3); min-width: 0;
+  }
+  @media (min-width: 640px) {
+    .acct-meta-row { justify-content: flex-start; }
+  }
+  @media (max-width: 639px) {
+    .acct-hero { flex-direction: column; text-align: center; }
   }
 
-  /* Account page form actions — both Cancel and Save changes land on the same
-     brand orange on hover. Text/icon go white so the label stays legible once
-     the ghost button fills in. */
-  .btn-hover-green:hover:not(:disabled) {
-    background: #C2410C;
-    border-color: #C2410C;
-    color: #ffffff;
+  .acct-tabs {
+    display: inline-flex; gap: 4px; padding: 4px;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 9999px;
   }
-  .btn-hover-green:hover:not(:disabled) svg { color: #ffffff; }
+  .acct-tab {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: 9999px;
+    font-size: 13px; font-weight: 600; color: var(--ink-3);
+    cursor: pointer; border: none; background: transparent;
+    transition: background .15s, color .15s, box-shadow .15s;
+  }
+  .acct-tab:hover:not(.active) { color: var(--ink); }
+  .acct-tab.active {
+    background: #ffffff; color: var(--primary);
+    box-shadow: 0 2px 8px rgba(15,23,42,0.10);
+  }
+
+  .acct-section-icon {
+    width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+    display: grid; place-items: center;
+    background: rgba(194,65,12,0.08); color: var(--primary);
+  }
+  .acct-section-icon-danger { background: rgba(220,38,38,0.08); color: #dc2626; }
+
+  .acct-input-wrap { position: relative; }
+  .acct-input-icon {
+    position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+    color: var(--ink-4); pointer-events: none;
+  }
+  .acct-input-icon-pad { padding-left: 38px; }
+  .acct-input-icon-pad-r { padding-right: 38px; }
+  .acct-input-eye {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    display: grid; place-items: center; padding: 4px; border-radius: 6px;
+    color: var(--ink-4); background: none; border: none; cursor: pointer;
+    transition: color .15s, background .15s;
+  }
+  .acct-input-eye:hover { color: var(--ink-2); background: var(--surface-2); }
+
+  .acct-danger-card {
+    border: 1px solid rgba(220,38,38,0.22);
+    background: rgba(220,38,38,0.03);
+    border-radius: 14px;
+    padding: 18px;
+  }
+
+  /* === TRANSACTIONS PAGE ===========================================
+     Scoped to src/surfaces/customer/Transactions.jsx only (also reused
+     as-is under /admin and the reseller Customers surface, which mount
+     the same component). */
+  .txn-summary {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .txn-metric {
+    display: flex; align-items: center; gap: 14px;
+    flex: 1 1 200px; min-width: 200px;
+  }
+  .txn-metric-icon {
+    width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+    display: grid; place-items: center;
+    background: rgba(194,65,12,0.08); color: var(--primary);
+  }
+  .txn-metric-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 700; color: var(--ink-3);
+  }
+  .txn-metric-value {
+    margin-top: 2px; font-size: 24px; font-weight: 800; color: var(--ink);
+    line-height: 1.15;
+  }
+  .txn-metric-divider { width: 1px; background: var(--line-2); align-self: stretch; }
+  @media (max-width: 639px) {
+    .txn-summary { flex-direction: column; gap: 14px; }
+    .txn-metric-divider { display: none; }
+    .txn-metric { padding-bottom: 14px; border-bottom: 1px solid var(--line-2); }
+    .txn-metric:last-child { padding-bottom: 0; border-bottom: none; }
+  }
+
+  .txn-ref-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink-3);
+    background: none; border: none; cursor: pointer; padding: 3px 6px;
+    border-radius: 6px; max-width: 100%;
+    transition: background .15s, color .15s;
+  }
+  .txn-ref-btn:hover { background: var(--surface-2); color: var(--ink); }
+  .txn-ref-btn:disabled { cursor: default; }
 
   .field-label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
   .field-help { font-size: 12px; color: var(--ink-3); margin-top: 4px; }

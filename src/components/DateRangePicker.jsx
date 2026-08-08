@@ -98,6 +98,12 @@ const ACCENTS = {
     active: 'bg-[#3a5a0c] border-[#3a5a0c] text-white',
     hover: 'hover:border-[rgba(77,124,15,0.35)] hover:text-[#3a5a0c]',
   },
+  // Conciva AI's orange brand accent — used by Transactions to match the
+  // page's own theme instead of the legacy lime/green defaults above.
+  orange: {
+    active: 'bg-orange-100 border-orange-300 text-orange-800',
+    hover: 'hover:bg-orange-50 hover:border-orange-300 hover:text-orange-700',
+  },
 };
 
 export default function DateRangePicker({ from, to, onChange, className = '', accent = 'lime' }) {

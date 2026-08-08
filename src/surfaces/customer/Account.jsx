@@ -1,14 +1,9 @@
 import { useEffect, useState } from 'react';
-import { User, Lock, AlertTriangle, Save, KeyRound, Trash2, Phone, Mail, AtSign } from 'lucide-react';
+import {
+  User, Lock, AlertTriangle, Save, KeyRound, Trash2, Phone, Mail, AtSign,
+  Building2, Shield, Eye, EyeOff, ShieldCheck,
+} from 'lucide-react';
 import { useApp } from '../../AppContext.jsx';
-
-// Card surface for this page. The avatar/section discs sit on top of it, so
-// they go white to stay legible against the tinted card.
-const CARD_BG = '#EEF8D4';
-const DISC_BG = '#FFFFFF';
-// Ring around the white discs so they read as deliberate badges against the
-// tinted card instead of looking like punched-out holes. The border itself
-// and its hover glow live in the `.disc-ring` class (src/index.css).
 
 // Initials for the avatar disc — derived from the name we already have, since
 // the API exposes no avatar/photo field (see publicUser in server/index.js).
@@ -20,8 +15,37 @@ const initialsOf = (user) => {
   return src.slice(0, 2).toUpperCase();
 };
 
+// Small labeled input with a leading icon — used throughout both panels so
+// every field in the form gets the same premium, icon-adorned treatment.
+function IconField({ icon: Icon, label, help, ...inputProps }) {
+  return (
+    <div>
+      <label className="field-label">{label}</label>
+      <div className="acct-input-wrap">
+        <Icon size={15} className="acct-input-icon" />
+        <input className="input acct-input-icon-pad" {...inputProps} />
+      </div>
+      {help && <div className="field-help">{help}</div>}
+    </div>
+  );
+}
+
+function SectionHeading({ icon: Icon, title, desc }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="acct-section-icon"><Icon size={16} /></div>
+      <div>
+        <div className="font-bold">{title}</div>
+        <div className="text-sm text-mute">{desc}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function Account() {
   const { currentUser, updateCurrentUser, changePassword, deleteCurrentAccount, authError, setAuthError } = useApp();
+
+  const [tab, setTab] = useState('profile'); // 'profile' | 'security'
 
   const [profile, setProfile] = useState({
     name: '', company: '', email: '', username: '', phone: '',
@@ -32,6 +56,7 @@ export default function Account() {
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
   const [pwBusy, setPwBusy] = useState(false);
   const [pwMsg, setPwMsg] = useState('');
+  const [pwVisible, setPwVisible] = useState({ current: false, next: false, confirm: false });
 
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -82,104 +107,67 @@ export default function Account() {
     setPwBusy(false);
     if (ok) {
       setPw({ current: '', next: '', confirm: '' });
+      setPwVisible({ current: false, next: false, confirm: false });
       setPwMsg('✓ Password changed.');
     }
   };
 
+  const togglePwVisible = (key) => setPwVisible((v) => ({ ...v, [key]: !v[key] }));
+
   return (
     <div>
-      {/* "Account" title now lives in the sticky top bar instead of here. */}
-      <p className="font-semibold text-base tracking-wide" style={{ color: 'var(--ink-2)' }}>Manage your profile, login, and contact details.</p>
+      <div className="text-[11px] font-mono uppercase tracking-widest font-bold" style={{ color: 'var(--primary)' }}>
+        Account settings
+      </div>
+      <p className="mt-1 text-sm" style={{ color: 'var(--ink-3)' }}>
+        Manage your profile, login, and contact details.
+      </p>
 
-      {/* Summary card on the left, editable form on the right. Only fields the
-          API actually returns are shown (see publicUser in server/index.js) —
-          no avatar upload, "last login", or "member since", because nothing in
-          this project stores them. */}
-      <div className="mt-6 grid lg:grid-cols-[300px_1fr] gap-4 items-start">
-        {/* ===== SUMMARY ===== */}
-        <div className="form-card text-center" style={{ background: CARD_BG }}>
-          <div
-            className="disc-ring mx-auto grid place-items-center rounded-full text-2xl font-bold"
-            style={{ width: 116, height: 116, background: DISC_BG, color: 'var(--primary)' }}
-          >
-            {initialsOf(currentUser)}
+      {/* ===== IDENTITY HERO ===== */}
+      <div className="acct-hero form-card mt-6">
+        <div className="acct-avatar">{initialsOf(currentUser)}</div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
+            <h2 className="text-xl font-bold truncate">{currentUser.name || currentUser.username}</h2>
+            <span className="acct-role-pill">{currentUser.userType || currentUser.role}</span>
           </div>
-          <div className="mt-4 text-lg font-bold">{currentUser.name || currentUser.username}</div>
-          {/* Role pill keeps the static outline but not `.disc-ring` — it's a
-              label, not one of the icon badges, so it stays still. */}
-          <div className="mt-1.5 inline-block rounded-full px-2.5 py-1 text-xs font-semibold capitalize"
-               style={{ background: DISC_BG, color: 'var(--primary)', border: '1px solid #4D7C0F' }}>
-            {currentUser.userType || currentUser.role}
-          </div>
-
-          <div className="mt-5 pt-5 border-t space-y-3 text-left" style={{ borderColor: 'var(--line-2)' }}>
-            <div className="flex items-center gap-2.5 text-sm min-w-0">
-              <Mail size={15} className="shrink-0" style={{ color: 'var(--primary)' }} />
-              <span className="truncate">{currentUser.email}</span>
-            </div>
-            <div className="flex items-center gap-2.5 text-sm min-w-0">
-              <AtSign size={15} className="shrink-0" style={{ color: 'var(--primary)' }} />
-              <span className="truncate">{currentUser.username}</span>
-            </div>
-            {currentUser.phone && (
-              <div className="flex items-center gap-2.5 text-sm min-w-0">
-                <Phone size={15} className="shrink-0" style={{ color: 'var(--primary)' }} />
-                <span className="truncate">{currentUser.phone}</span>
-              </div>
-            )}
+          <div className="acct-meta-row">
+            <span className="acct-meta-item"><Mail size={13} />{currentUser.email}</span>
+            <span className="acct-meta-item"><AtSign size={13} />{currentUser.username}</span>
+            {currentUser.phone && <span className="acct-meta-item"><Phone size={13} />{currentUser.phone}</span>}
           </div>
         </div>
+      </div>
 
-        {/* ===== EDITABLE FORM ===== */}
-        <div className="min-w-0 form-card" style={{ background: CARD_BG }}>
-          <div className="flex items-start gap-3">
-            <div className="disc-ring grid place-items-center rounded-full shrink-0"
-                 style={{ width: 40, height: 40, background: DISC_BG, color: 'var(--primary)' }}>
-              <User size={18} />
-            </div>
-            <div>
-              <div className="font-bold">Profile details</div>
-              <div className="text-sm text-mute">Update your personal and company details.</div>
-            </div>
-          </div>
+      {/* ===== SECTION TABS ===== */}
+      <div className="acct-tabs mt-6">
+        <button type="button" className={`acct-tab${tab === 'profile' ? ' active' : ''}`} onClick={() => setTab('profile')}>
+          <User size={14} /> Profile
+        </button>
+        <button type="button" className={`acct-tab${tab === 'security' ? ' active' : ''}`} onClick={() => setTab('security')}>
+          <Shield size={14} /> Security
+        </button>
+      </div>
 
+      {tab === 'profile' && (
+        <div className="mt-4 form-card animate-fade-up">
+          <SectionHeading icon={User} title="Personal information" desc="Your name and company, as shown across the app." />
           <div className="mt-5 grid sm:grid-cols-2 gap-x-4 gap-y-4">
-            <div>
-              <label className="field-label">Full name</label>
-              <input className="input" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
-            </div>
-            <div>
-              <label className="field-label">Company name</label>
-              <input className="input" value={profile.company} onChange={(e) => setProfile({ ...profile, company: e.target.value })} />
-            </div>
-            <div>
-              <label className="field-label">Email</label>
-              <input className="input" type="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} />
-            </div>
-            <div>
-              <label className="field-label">Username</label>
-              <input className="input" value={profile.username} onChange={(e) => setProfile({ ...profile, username: e.target.value })} />
-              <div className="field-help">Your sign-in handle.</div>
-            </div>
+            <IconField icon={User} label="Full name" value={profile.name}
+              onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
+            <IconField icon={Building2} label="Company name" value={profile.company}
+              onChange={(e) => setProfile({ ...profile, company: e.target.value })} />
+            <IconField icon={Mail} label="Email" type="email" value={profile.email}
+              onChange={(e) => setProfile({ ...profile, email: e.target.value })} />
+            <IconField icon={AtSign} label="Username" help="Your sign-in handle." value={profile.username}
+              onChange={(e) => setProfile({ ...profile, username: e.target.value })} />
           </div>
 
           <div className="mt-6 pt-5 border-t" style={{ borderColor: 'var(--line-2)' }}>
-            <div className="flex items-start gap-3">
-              <div className="disc-ring grid place-items-center rounded-full shrink-0"
-                   style={{ width: 40, height: 40, background: DISC_BG, color: 'var(--primary)' }}>
-                <Phone size={18} />
-              </div>
-              <div>
-                <div className="font-bold">Contact details</div>
-                <div className="text-sm text-mute">Update how we can reach you.</div>
-              </div>
-            </div>
+            <SectionHeading icon={Phone} title="Contact details" desc="Update how we can reach you." />
             <div className="mt-5 grid sm:grid-cols-2 gap-x-4 gap-y-4">
-              <div>
-                <label className="field-label">Phone</label>
-                <input className="input" placeholder="+1 ..." value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} />
-                <div className="field-help">Used for SMS alerts and verification.</div>
-              </div>
+              <IconField icon={Phone} label="Phone" placeholder="+1 ..." help="Used for SMS alerts and verification."
+                value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} />
             </div>
           </div>
 
@@ -187,77 +175,123 @@ export default function Account() {
               commits them. Password below keeps its own submit because it
               hits a different endpoint with different validation. */}
           <div className="mt-6 pt-5 border-t flex flex-wrap items-center justify-end gap-2" style={{ borderColor: 'var(--line-2)' }}>
-            {profileMsg && <div className="mr-auto text-xs font-semibold text-lime-700">{profileMsg}</div>}
-            <button type="button" className="btn-ghost btn-hover-green" onClick={resetProfile} disabled={profileBusy}>Cancel</button>
-            <button className="btn-ghost btn-hover-green inline-flex items-center gap-1.5" onClick={saveProfile} disabled={profileBusy}>
+            {profileMsg && <div className="mr-auto text-xs font-semibold" style={{ color: '#15803d' }}>{profileMsg}</div>}
+            <button type="button" className="btn-ghost" onClick={resetProfile} disabled={profileBusy}>Cancel</button>
+            <button className="btn-teal inline-flex items-center gap-1.5" onClick={saveProfile} disabled={profileBusy}>
               <Save size={14} /> {profileBusy ? 'Saving…' : 'Save changes'}
             </button>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Password + danger zone stay in their own card below the two columns. */}
-      <div className="mt-4 form-card" style={{ background: CARD_BG }}>
-        <div>
-          <div className="text-xs font-mono uppercase tracking-widest font-semibold inline-flex items-center gap-1.5" style={{ color: 'var(--primary)' }}>
-            <Lock size={12} /> Password
-          </div>
-          {/* Three across instead of three stacked full-width inputs — this
-              card spans the full page width, so one field per row left a lot
-              of dead space and pushed the submit far down the page. */}
+      {tab === 'security' && (
+        <div className="mt-4 form-card animate-fade-up">
+          <SectionHeading icon={KeyRound} title="Password" desc="Choose a strong password you don't use elsewhere." />
+
           <form onSubmit={submitPassword}>
             <div className="mt-5 grid sm:grid-cols-3 gap-x-4 gap-y-4">
               <div>
                 <label className="field-label">Current password</label>
-                <input className="input" type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} autoComplete="current-password" />
+                <div className="acct-input-wrap">
+                  <Lock size={15} className="acct-input-icon" />
+                  <input
+                    className="input acct-input-icon-pad acct-input-icon-pad-r"
+                    type={pwVisible.current ? 'text' : 'password'}
+                    value={pw.current}
+                    onChange={(e) => setPw({ ...pw, current: e.target.value })}
+                    autoComplete="current-password"
+                  />
+                  <button type="button" className="acct-input-eye" onClick={() => togglePwVisible('current')} tabIndex={-1}>
+                    {pwVisible.current ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="field-label">New password</label>
-                <input className="input" type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} autoComplete="new-password" />
+                <div className="acct-input-wrap">
+                  <Lock size={15} className="acct-input-icon" />
+                  <input
+                    className="input acct-input-icon-pad acct-input-icon-pad-r"
+                    type={pwVisible.next ? 'text' : 'password'}
+                    value={pw.next}
+                    onChange={(e) => setPw({ ...pw, next: e.target.value })}
+                    autoComplete="new-password"
+                  />
+                  <button type="button" className="acct-input-eye" onClick={() => togglePwVisible('next')} tabIndex={-1}>
+                    {pwVisible.next ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+                <div className="field-help">At least 8 characters.</div>
               </div>
               <div>
                 <label className="field-label">Confirm new password</label>
-                <input className="input" type="password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} autoComplete="new-password" />
+                <div className="acct-input-wrap">
+                  <Lock size={15} className="acct-input-icon" />
+                  <input
+                    className="input acct-input-icon-pad acct-input-icon-pad-r"
+                    type={pwVisible.confirm ? 'text' : 'password'}
+                    value={pw.confirm}
+                    onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
+                    autoComplete="new-password"
+                  />
+                  <button type="button" className="acct-input-eye" onClick={() => togglePwVisible('confirm')} tabIndex={-1}>
+                    {pwVisible.confirm ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
               </div>
             </div>
-            <button type="submit" className="btn-ghost btn-hover-green mt-4 inline-flex items-center gap-1.5" disabled={pwBusy}>
-              <KeyRound size={14} /> {pwBusy ? 'Updating…' : 'Change password'}
-            </button>
-            {pwMsg && <div className="mt-2 text-xs font-semibold text-lime-700">{pwMsg}</div>}
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <button type="submit" className="btn-teal inline-flex items-center gap-1.5" disabled={pwBusy}>
+                <KeyRound size={14} /> {pwBusy ? 'Updating…' : 'Change password'}
+              </button>
+              {pwMsg && <div className="text-xs font-semibold" style={{ color: '#15803d' }}>{pwMsg}</div>}
+            </div>
           </form>
 
           {authError && (
-            <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <div className="mt-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               {authError}
             </div>
           )}
-        </div>
 
-        <div className="mt-6 pt-5 border-t" style={{ borderColor: 'var(--line-2)' }}>
-          {/* `flex`, not `inline-flex` — inline-flex let the delete button sit
-              on the same line as the heading. Block-level keeps the heading on
-              its own row with the button beneath it. */}
-          <div className="text-xs font-mono uppercase tracking-wide font-semibold text-red-600 mb-2 flex items-center gap-1.5">
-            <AlertTriangle size={12} /> Danger zone
-          </div>
-          {!confirmDelete ? (
-            <button className="btn-red text-sm inline-flex items-center gap-1.5" onClick={() => setConfirmDelete(true)}>
-              <Trash2 size={14} /> Delete account &amp; release number
-            </button>
-          ) : (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-              <div className="text-sm text-red-900">Really delete your account? This cannot be undone.</div>
-              <div className="mt-3 flex gap-2">
-                <button className="btn-red text-sm inline-flex items-center gap-1.5" onClick={deleteCurrentAccount}>
-                  <Trash2 size={14} /> Yes, delete forever
-                </button>
-                <button className="btn-ghost btn-hover-green text-sm" onClick={() => setConfirmDelete(false)}>Cancel</button>
+          <div className="mt-6 pt-5 border-t" style={{ borderColor: 'var(--line-2)' }}>
+            <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wide font-semibold text-red-600 mb-3">
+              <AlertTriangle size={13} /> Danger zone
+            </div>
+            <div className="acct-danger-card">
+              <div className="flex items-start gap-3">
+                <div className="acct-section-icon acct-section-icon-danger"><Trash2 size={16} /></div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-sm">Delete account</div>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--ink-3)' }}>
+                    Cancels your subscription, deletes your agent, and releases your phone number. This cannot be undone.
+                  </p>
+
+                  {!confirmDelete ? (
+                    <button className="btn-red text-sm mt-3 inline-flex items-center gap-1.5" onClick={() => setConfirmDelete(true)}>
+                      <Trash2 size={14} /> Delete account &amp; release number
+                    </button>
+                  ) : (
+                    <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
+                      <div className="text-sm text-red-900 font-medium">Really delete your account? This cannot be undone.</div>
+                      <div className="mt-3 flex gap-2">
+                        <button className="btn-red text-sm inline-flex items-center gap-1.5" onClick={deleteCurrentAccount}>
+                          <Trash2 size={14} /> Yes, delete forever
+                        </button>
+                        <button className="btn-ghost text-sm" onClick={() => setConfirmDelete(false)}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          )}
-          <p className="text-xs text-mute mt-2">Cancels your subscription, deletes your agent, and releases your phone number. Cannot be undone.</p>
+          </div>
+
+          <div className="mt-5 flex items-center gap-2 text-xs" style={{ color: 'var(--ink-4)' }}>
+            <ShieldCheck size={13} /> Your credentials are never shared with third parties.
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
