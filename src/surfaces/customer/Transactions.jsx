@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Receipt, Wallet, CheckCircle2, Globe, Search, SlidersHorizontal, Copy, Check,
+  Calendar, ChevronDown, X, RefreshCw, CreditCard, UserPlus, RotateCcw, ArrowLeftRight,
+  Download,
 } from 'lucide-react';
 import { api } from '../../api.js';
 import { useApp } from '../../AppContext.jsx';
@@ -12,6 +14,10 @@ import { readCache, writeCache } from '../../utils/swrCache.js';
 // Transactions — the customer's payment history. Combines plan purchases (per
 // DID) with wallet top-ups and auto-recharge charges from GET /api/transactions.
 // Filterable by date range, kind, and free-text search, with CSV export.
+//
+// Presented as a grouped statement (day headers + receipt-style rows) instead
+// of a spreadsheet table — the same filtering/export/refresh machinery below,
+// just a different lens on it.
 // =============================================================================
 
 const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -39,7 +45,7 @@ function loadRazorpay() {
 // =============================================================================
 // AddFundsModal — same wallet top-up flow as Billing.jsx's Wallet tab (pack
 // picker + custom amount + real Razorpay Checkout), but as an in-place modal
-// so "+ Add Funds" on the empty state doesn't have to navigate away.
+// so "Add Funds" doesn't have to navigate away.
 // =============================================================================
 function AddFundsModal({ onClose, onSuccess }) {
   const [packs, setPacks] = useState([]);
@@ -170,6 +176,7 @@ function AddFundsModal({ onClose, onSuccess }) {
   );
 }
 
+// Full date+time — used only for CSV export, where a precise timestamp matters.
 const fmtDate = (d) => {
   const z = new Date(d);
   return isNaN(z.getTime()) ? '—' : z.toLocaleString('en-US', {
@@ -177,8 +184,24 @@ const fmtDate = (d) => {
   });
 };
 
+// Just the clock time — used in the row meta line, since the day is already
+// carried by the group header above it.
+const fmtTime = (d) => {
+  const z = new Date(d);
+  return isNaN(z.getTime()) ? '' : z.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+};
+
+// Short "23 Aug" display — used for the date-range trigger and filter chips.
+const fmtShort = (s) => {
+  if (!s) return '…';
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return isNaN(dt.getTime()) ? '…' : dt.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+};
+
 // Local YYYY-MM-DD key for a timestamp — used to compare a row's date against
-// the (from, to) range strings the DateRangePicker emits (also local).
+// the (from, to) range strings the DateRangePicker emits (also local), and to
+// bucket rows into day groups for the statement view.
 const dateKey = (d) => {
   const z = new Date(d);
   if (isNaN(z.getTime())) return '';
@@ -188,22 +211,39 @@ const dateKey = (d) => {
   return `${y}-${m}-${day}`;
 };
 
-// Human label + pill colour for each transaction kind. Covers both the wallet
-// ledger kinds and the synthesised per-DID plan row.
-const KIND_META = {
-  plan:              { label: 'Plan + DID',      pill: 'bg-orange-100 text-orange-700' },
-  'new-number-plan': { label: 'New plan + DID',  pill: 'bg-orange-100 text-orange-700' },
-  'plan-change':     { label: 'Plan change',     pill: 'bg-orange-100 text-orange-700' },
-  'plan-restart':    { label: 'Plan restart',    pill: 'bg-amber-100 text-amber-700' },
-  topup:             { label: 'Wallet top-up',   pill: 'bg-emerald-100 text-emerald-700' },
-  auto_recharge:     { label: 'Auto-recharge',   pill: 'bg-indigo-100 text-indigo-700' },
-  'save-card':       { label: 'Card saved',      pill: 'bg-purple-100 text-purple-700' },
-  signup:            { label: 'Signup',          pill: 'bg-fuchsia-100 text-fuchsia-700' },
-  adjustment:        { label: 'Adjustment',      pill: 'bg-amber-100 text-amber-700' },
-  refund:            { label: 'Refund',          pill: 'bg-rose-100 text-rose-700' },
-  wallet:            { label: 'Wallet',          pill: 'bg-slate-100 text-slate-700' },
+// "Today" / "Yesterday" / full weekday date — the label above each day's
+// group of rows in the statement.
+const groupLabel = (key) => {
+  const today = dateKey(new Date());
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  const yesterday = dateKey(y);
+  if (key === today) return 'Today';
+  if (key === yesterday) return 'Yesterday';
+  const [yy, mm, dd] = key.split('-').map(Number);
+  const dt = new Date(yy, mm - 1, dd);
+  return isNaN(dt.getTime())
+    ? 'Unknown date'
+    : dt.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 };
-const kindMeta = (k) => KIND_META[k] || { label: k || 'Transaction', pill: 'bg-slate-100 text-slate-700' };
+
+// Human label + presentation for each transaction kind. `tone` drives the
+// amount's colour (money in vs. money out vs. neutral) and `icon`/`swatch`
+// drive the row's leading avatar. Covers both the wallet ledger kinds and the
+// synthesised per-DID plan row.
+const KIND_META = {
+  plan:              { label: 'Plan + DID',     icon: Receipt,        tone: 'out',     swatch: 'bg-orange-100 text-orange-700' },
+  'new-number-plan': { label: 'New plan + DID', icon: Receipt,        tone: 'out',     swatch: 'bg-orange-100 text-orange-700' },
+  'plan-change':     { label: 'Plan change',    icon: Receipt,        tone: 'out',     swatch: 'bg-orange-100 text-orange-700' },
+  'plan-restart':    { label: 'Plan restart',   icon: RefreshCw,      tone: 'out',     swatch: 'bg-amber-100 text-amber-700' },
+  topup:             { label: 'Wallet top-up',  icon: Wallet,         tone: 'in',      swatch: 'bg-emerald-100 text-emerald-700' },
+  auto_recharge:     { label: 'Auto-recharge',  icon: RefreshCw,      tone: 'out',     swatch: 'bg-indigo-100 text-indigo-700' },
+  'save-card':       { label: 'Card saved',     icon: CreditCard,     tone: 'neutral', swatch: 'bg-purple-100 text-purple-700' },
+  signup:            { label: 'Signup',         icon: UserPlus,       tone: 'neutral', swatch: 'bg-fuchsia-100 text-fuchsia-700' },
+  adjustment:        { label: 'Adjustment',     icon: ArrowLeftRight, tone: 'neutral', swatch: 'bg-amber-100 text-amber-700' },
+  refund:            { label: 'Refund',         icon: RotateCcw,      tone: 'in',      swatch: 'bg-rose-100 text-rose-700' },
+  wallet:            { label: 'Wallet',         icon: Wallet,         tone: 'neutral', swatch: 'bg-slate-100 text-slate-700' },
+};
+const kindMeta = (k) => KIND_META[k] || { label: k || 'Transaction', icon: Receipt, tone: 'neutral', swatch: 'bg-slate-100 text-slate-700' };
 
 // Status pill colour + dot — small leading dot gives each row a quicker
 // scannable signal than colour alone (helps colour-blind users too).
@@ -222,19 +262,20 @@ const statusMeta = (s) => {
 function StatusPill({ status }) {
   const meta = statusMeta(status);
   return (
-    <span className={`pill text-[10px] uppercase tracking-wider font-semibold inline-flex items-center gap-1.5 ${meta.pill}`}>
+    <span className={`pill text-[9px] uppercase tracking-wider font-semibold inline-flex items-center gap-1.5 ${meta.pill}`}>
       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.dot }} />
       {meta.label}
     </span>
   );
 }
 
-// Click-to-copy for the Ref column — pure client-side clipboard nicety, no
-// new functionality beyond what the column already displayed.
+// Click-to-copy for a transaction's reference — pure client-side clipboard
+// nicety, no new functionality beyond what was already displayed.
 function RefCell({ value }) {
   const [copied, setCopied] = useState(false);
-  if (!value) return <span className="text-mute font-mono text-xs">—</span>;
-  const copy = async () => {
+  if (!value) return null;
+  const copy = async (e) => {
+    e.stopPropagation();
     try {
       await navigator.clipboard.writeText(value);
       setCopied(true);
@@ -243,9 +284,52 @@ function RefCell({ value }) {
   };
   return (
     <button type="button" onClick={copy} className="txn-ref-btn" title="Copy reference">
-      <span className="truncate">{value}</span>
-      {copied ? <Check size={12} className="shrink-0" style={{ color: 'var(--primary)' }} /> : <Copy size={12} className="shrink-0" />}
+      <span className="truncate max-w-[120px]">{value}</span>
+      {copied ? <Check size={11} className="shrink-0" style={{ color: 'var(--primary)' }} /> : <Copy size={11} className="shrink-0" />}
     </button>
+  );
+}
+
+// Removable filter chip — used in the active-filters row under the toolbar.
+function Chip({ label, onClear }) {
+  return (
+    <span className="txn-chip">
+      {label}
+      <button type="button" onClick={onClear} aria-label={`Clear ${label}`}><X size={11} /></button>
+    </span>
+  );
+}
+
+// Lightweight client-side bar chart of daily totals — built entirely from the
+// already-fetched `filtered` rows, no extra API calls. Hidden when there's
+// nothing meaningful to trend (0-1 day of data).
+function SpendTrend({ data }) {
+  if (data.length < 2) return null;
+  const max = Math.max(...data.map(([, v]) => v), 1);
+  return (
+    <div className="txn-trend" aria-hidden="true">
+      {data.map(([k, v]) => (
+        <div key={k} className="txn-trend-bar" style={{ height: `${Math.max(6, (v / max) * 100)}%` }} title={`${k} · ${money(v)}`} />
+      ))}
+    </div>
+  );
+}
+
+// Pulsing placeholder rows shown while the first load is in flight — same
+// grid shape as a real row so the layout doesn't jump once data lands.
+function RowSkeleton() {
+  return (
+    <div className="txn-row">
+      <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 animate-pulse shrink-0" />
+      <div className="min-w-0 space-y-2">
+        <div className="h-3.5 w-40 max-w-full bg-slate-100 rounded animate-pulse" />
+        <div className="h-2.5 w-56 max-w-full bg-slate-100 rounded animate-pulse" />
+      </div>
+      <div className="text-right space-y-2">
+        <div className="h-3.5 w-14 bg-slate-100 rounded animate-pulse ml-auto" />
+        <div className="h-3 w-16 bg-slate-100 rounded animate-pulse ml-auto" />
+      </div>
+    </div>
   );
 }
 
@@ -255,6 +339,7 @@ export default function Transactions() {
   const [err, setErr]         = useState('');
   const [loading, setLoading] = useState(true);
   const [showAddFunds, setShowAddFunds] = useState(false);
+  const [dateOpen, setDateOpen] = useState(false);
 
   // Filters — default to "Today" so the page lands on a tight, current view
   // (matching the reseller/report surfaces). Users widen with "All time".
@@ -262,7 +347,7 @@ export default function Transactions() {
   const [kind, setKind]     = useState('all');
   const [search, setSearch] = useState('');
 
-  // Payment provider label for the "Total paid via …" line + Provider column.
+  // Payment provider label for the "Total paid via …" line + row meta.
   const [provider, setProvider] = useState('Razorpay');
 
   const portal = currentUser?.resellerPortal || 'conciva.ai';
@@ -287,7 +372,7 @@ export default function Transactions() {
   };
   useEffect(() => { load(); }, []);
 
-  // Resolve the active payment gateway once so the Provider column + subtitle
+  // Resolve the active payment gateway once so the "via …" line + row meta
   // read the real value (Razorpay / Stripe). Falls back to Razorpay.
   useEffect(() => {
     let cancelled = false;
@@ -303,24 +388,27 @@ export default function Transactions() {
     return () => { cancelled = true; };
   }, []);
 
-  // Rows that pass the date-range + kind + search filters.
+  // Rows that pass the date-range + kind + search filters, newest first —
+  // this order also drives the CSV export and the day-group order below.
   const filtered = useMemo(() => {
     if (!txns) return [];
     const q = search.trim().toLowerCase();
     const { from, to } = range;
-    return txns.filter((t) => {
-      const dk = dateKey(t.date);
-      if (from && dk && dk < from) return false;
-      if (to && dk && dk > to) return false;
-      if (kind !== 'all' && (t.type || 'wallet') !== kind) return false;
-      if (!q) return true;
-      return (
-        (t.description || '').toLowerCase().includes(q) ||
-        (t.ref || '').toLowerCase().includes(q) ||
-        (t.method || '').toLowerCase().includes(q) ||
-        kindMeta(t.type).label.toLowerCase().includes(q)
-      );
-    });
+    return txns
+      .filter((t) => {
+        const dk = dateKey(t.date);
+        if (from && dk && dk < from) return false;
+        if (to && dk && dk > to) return false;
+        if (kind !== 'all' && (t.type || 'wallet') !== kind) return false;
+        if (!q) return true;
+        return (
+          (t.description || '').toLowerCase().includes(q) ||
+          (t.ref || '').toLowerCase().includes(q) ||
+          (t.method || '').toLowerCase().includes(q) ||
+          kindMeta(t.type).label.toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [txns, range, kind, search]);
 
   // Distinct kinds present (across ALL rows, ignoring filters) with counts —
@@ -334,7 +422,41 @@ export default function Transactions() {
     return [...m.entries()];
   }, [txns]);
 
+  // Filtered rows bucketed into day groups, in the same newest-first order.
+  const groups = useMemo(() => {
+    const m = new Map();
+    for (const t of filtered) {
+      const k = dateKey(t.date) || 'unknown';
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(t);
+    }
+    return [...m.entries()];
+  }, [filtered]);
+
+  // Daily totals across the filtered set, oldest→newest, capped to the most
+  // recent 14 buckets — feeds the spend trend sparkline.
+  const trend = useMemo(() => {
+    const m = new Map();
+    for (const t of filtered) {
+      const k = dateKey(t.date);
+      if (!k) continue;
+      m.set(k, (m.get(k) || 0) + (Number(t.amount) || 0));
+    }
+    return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-14);
+  }, [filtered]);
+
   const totalPaid = filtered.reduce((a, t) => a + (Number(t.amount) || 0), 0);
+
+  const defaultRange = todayRange();
+  const isDefaultRange = range.from === defaultRange.from && range.to === defaultRange.to;
+  const rangeSummary = !range.from && !range.to
+    ? 'All time'
+    : range.from === range.to
+      ? (range.from === defaultRange.from ? 'Today' : fmtShort(range.from))
+      : `${fmtShort(range.from)} – ${fmtShort(range.to)}`;
+  const hasActiveFilters = kind !== 'all' || !!search.trim() || !isDefaultRange;
+
+  const clearAll = () => { setKind('all'); setSearch(''); setRange({ from: '', to: '' }); };
 
   const exportCsv = () => {
     if (!filtered.length) return;
@@ -374,11 +496,11 @@ export default function Transactions() {
           <button type="button" onClick={() => setShowAddFunds(true)} className="btn-ghost btn-ghost-accent text-sm inline-flex items-center gap-1.5">
             <Wallet size={14} /> Add Funds
           </button>
-          <button onClick={exportCsv} disabled={!filtered.length} className="btn-ghost text-sm">
-            Export CSV
+          <button onClick={exportCsv} disabled={!filtered.length} className="btn-ghost text-sm inline-flex items-center gap-1.5">
+            <Download size={14} /> Export
           </button>
-          <button onClick={load} disabled={loading} className="btn-ghost text-sm">
-            {loading ? 'Loading…' : '↻ Refresh'}
+          <button onClick={load} disabled={loading} className="btn-ghost text-sm inline-flex items-center gap-1.5">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> {loading ? 'Loading…' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -387,162 +509,188 @@ export default function Transactions() {
         <div className="mt-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">⚠ {err}</div>
       )}
 
-      {/* Summary bar — one unified card instead of three separate boxes */}
-      <div className="mt-6 form-card txn-summary">
-        <div className="txn-metric">
-          <div className="txn-metric-icon"><Receipt size={18} /></div>
-          <div className="min-w-0">
-            <div className="txn-metric-label">Transactions</div>
-            <div className="txn-metric-value">{txns === null ? '—' : filtered.length}</div>
+      {/* Hero — one dominant "Total paid" figure with a spend trend, plus two
+          lighter supporting stats, instead of three equal-weight boxes. */}
+      <div className="mt-6 form-card txn-hero">
+        <div className="txn-hero-primary">
+          <div className="txn-metric-label">
+            Total paid <span className="normal-case font-normal text-mute">· via {provider}</span>
           </div>
+          <div className="txn-hero-amount">{totalPaid > 0 ? money(totalPaid) : '—'}</div>
+          <SpendTrend data={trend} />
         </div>
-        <div className="txn-metric-divider" />
-        <div className="txn-metric">
-          <div className="txn-metric-icon"><Wallet size={18} /></div>
-          <div className="min-w-0">
-            <div className="txn-metric-label">Total paid</div>
-            <div className="txn-metric-value">{totalPaid > 0 ? money(totalPaid) : '—'}</div>
-            <div className="text-xs text-mute mt-0.5">via {provider}</div>
-          </div>
-        </div>
-        <div className="txn-metric-divider" />
-        <div className="txn-metric">
-          <div className="txn-metric-icon"><Globe size={18} /></div>
-          <div className="min-w-0">
-            <div className="txn-metric-label">Portal</div>
-            <div className="txn-metric-value font-mono truncate" style={{ fontSize: 18 }}>{portal}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="mt-4 form-card">
-        <div className="flex items-center gap-2 mb-4">
-          <SlidersHorizontal size={13} style={{ color: 'var(--primary)' }} />
-          <span className="text-[11px] font-mono uppercase tracking-widest font-bold" style={{ color: 'var(--ink-2)' }}>Filters</span>
-        </div>
-        <DateRangePicker from={range.from} to={range.to} onChange={setRange} accent="orange" />
-        <div className="mt-4 grid sm:grid-cols-2 gap-3">
-          <div>
-            <label className="field-label">Kind</label>
-            <div className="acct-input-wrap">
-              <SlidersHorizontal size={14} className="acct-input-icon" />
-              <select className="input acct-input-icon-pad text-sm py-1.5" value={kind} onChange={(e) => setKind(e.target.value)}>
-                <option value="all">All kinds ({txns ? txns.length : 0})</option>
-                {kindCounts.map(([k, c]) => (
-                  <option key={k} value={k}>{kindMeta(k).label} ({c})</option>
-                ))}
-              </select>
+        <div className="txn-hero-secondary">
+          <div className="txn-hero-stat">
+            <div className="txn-metric-icon"><Receipt size={16} /></div>
+            <div className="min-w-0">
+              <div className="txn-metric-label">Transactions</div>
+              <div className="txn-hero-stat-value">{txns === null ? '—' : filtered.length}</div>
             </div>
           </div>
-          <div>
-            <label className="field-label">Search</label>
-            <div className="acct-input-wrap">
-              <Search size={14} className="acct-input-icon" />
-              <input
-                type="search"
-                className="input acct-input-icon-pad text-sm py-1.5"
-                placeholder="description, ref, phone…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+          <div className="txn-hero-stat">
+            <div className="txn-metric-icon"><Globe size={16} /></div>
+            <div className="min-w-0">
+              <div className="txn-metric-label">Portal</div>
+              <div className="txn-hero-stat-value font-mono truncate" style={{ fontSize: 14 }}>{portal}</div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Transactions table */}
-      <div className="mt-4 form-card p-0 overflow-x-auto">
-        <table className="w-full text-sm table-fixed">
-          <thead>
-            <tr>
-              <th className="w-[160px]">When</th>
-              <th className="w-[140px]">Kind</th>
-              <th>Description</th>
-              <th className="w-[90px] text-right">Amount</th>
-              <th className="w-[100px] text-center">Status</th>
-              <th className="w-[100px]">Provider</th>
-              <th className="w-[170px]">Ref</th>
-            </tr>
-          </thead>
-          <tbody>
-            {txns === null && (
-              <tr><td colSpan={7} className="text-center text-mute py-10">Loading transactions…</td></tr>
+      {/* Toolbar — a compact single row instead of a full filter card: a date
+          popover trigger, a kind select, and a search box that fills the rest
+          of the space. Active filters surface as removable chips beneath. */}
+      <div className="mt-4 form-card txn-toolbar-card">
+        <div className="txn-toolbar">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setDateOpen((o) => !o)}
+              className={`txn-filter-trigger${dateOpen || !isDefaultRange ? ' active' : ''}`}
+            >
+              <Calendar size={14} /> {rangeSummary} <ChevronDown size={13} />
+            </button>
+            {dateOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setDateOpen(false)} />
+                <div className="txn-date-popover">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[11px] font-mono uppercase tracking-widest font-bold" style={{ color: 'var(--ink-2)' }}>Date range</span>
+                    <button type="button" onClick={() => setDateOpen(false)} className="acct-input-eye" aria-label="Close">
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <DateRangePicker from={range.from} to={range.to} onChange={setRange} accent="orange" />
+                </div>
+              </>
             )}
-            {txns !== null && filtered.length === 0 && (
-              <tr>
-                <td colSpan={7} className="p-0">
-                  {(txns && txns.length === 0) ? (
-                    <div className="animate-fade-up flex flex-col items-center text-center px-6 py-14">
-                      {/* Illustration — wallet + checkmark badge, brand-orange accents, no emoji */}
-                      <div className="relative w-28 h-28 flex items-center justify-center rounded-full" style={{ background: 'var(--surface-tint)' }}>
-                        <Wallet className="w-12 h-12" style={{ color: 'var(--primary)' }} strokeWidth={1.5} />
-                        <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm">
-                          <CheckCircle2 className="w-6 h-6" style={{ color: 'var(--primary)' }} strokeWidth={1.75} />
-                        </span>
-                      </div>
+          </div>
 
-                      <h3 className="mt-5 text-lg font-bold text-slate-900">No transactions yet</h3>
-                      <p className="mt-2 text-sm text-mute max-w-sm">
-                        Your payments, wallet top-ups, plan purchases, and renewals will appear here once you start using Conciva AI.
-                      </p>
+          <div className="acct-input-wrap txn-toolbar-select">
+            <SlidersHorizontal size={14} className="acct-input-icon" />
+            <select className="input acct-input-icon-pad text-sm py-2" value={kind} onChange={(e) => setKind(e.target.value)}>
+              <option value="all">All kinds ({txns ? txns.length : 0})</option>
+              {kindCounts.map(([k, c]) => (
+                <option key={k} value={k}>{kindMeta(k).label} ({c})</option>
+              ))}
+            </select>
+          </div>
 
-                      <div className="mt-6 flex items-center gap-3 flex-wrap justify-center">
-                        <button type="button" onClick={() => setShowAddFunds(true)} className="btn-ghost btn-ghost-accent text-sm">+ Add Funds</button>
-                        <Link to={`${basePath}/billing?tab=plans`} className="btn-ghost text-sm">Browse Plans</Link>
-                      </div>
+          <div className="acct-input-wrap flex-1 min-w-[180px]">
+            <Search size={14} className="acct-input-icon" />
+            <input
+              type="search"
+              className="input acct-input-icon-pad text-sm py-2"
+              placeholder="Search description, ref, phone…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
 
-                      <div className="mt-4 flex items-center gap-3 text-xs text-mute">
-                        <Link to={`${basePath}/billing?tab=plans`} className="hover:underline" style={{ color: 'var(--primary)' }}>View Pricing</Link>
-                        <span aria-hidden="true">•</span>
-                        <Link to={`${basePath}/billing`} className="hover:underline" style={{ color: 'var(--primary)' }}>Learn about Billing</Link>
+        {hasActiveFilters && (
+          <div className="txn-chip-row">
+            {!isDefaultRange && <Chip label={rangeSummary} onClear={() => setRange(todayRange())} />}
+            {kind !== 'all' && <Chip label={kindMeta(kind).label} onClear={() => setKind('all')} />}
+            {!!search.trim() && <Chip label={`"${search.trim()}"`} onClear={() => setSearch('')} />}
+            <button type="button" className="txn-chip-clear-all" onClick={clearAll}>Clear all</button>
+          </div>
+        )}
+      </div>
+
+      {/* Statement — grouped by day, receipt-style rows instead of a table. */}
+      <div className="mt-4 form-card p-0 overflow-hidden">
+        {txns === null && (
+          <div>
+            <RowSkeleton /><RowSkeleton /><RowSkeleton /><RowSkeleton />
+          </div>
+        )}
+
+        {txns !== null && filtered.length === 0 && (
+          (txns && txns.length === 0) ? (
+            <div className="animate-fade-up flex flex-col items-center text-center px-6 py-14">
+              {/* Illustration — wallet + checkmark badge, brand-orange accents, no emoji */}
+              <div className="relative w-28 h-28 flex items-center justify-center rounded-full" style={{ background: 'var(--surface-tint)' }}>
+                <Wallet className="w-12 h-12" style={{ color: 'var(--primary)' }} strokeWidth={1.5} />
+                <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm">
+                  <CheckCircle2 className="w-6 h-6" style={{ color: 'var(--primary)' }} strokeWidth={1.75} />
+                </span>
+              </div>
+
+              <h3 className="mt-5 text-lg font-bold text-slate-900">No transactions yet</h3>
+              <p className="mt-2 text-sm text-mute max-w-sm">
+                Your payments, wallet top-ups, plan purchases, and renewals will appear here once you start using Conciva AI.
+              </p>
+
+              <div className="mt-6 flex items-center gap-3 flex-wrap justify-center">
+                <button type="button" onClick={() => setShowAddFunds(true)} className="btn-ghost btn-ghost-accent text-sm">+ Add Funds</button>
+                <Link to={`${basePath}/billing?tab=plans`} className="btn-ghost text-sm">Browse Plans</Link>
+              </div>
+
+              <div className="mt-6 flex items-center gap-6 text-xs text-mute flex-wrap justify-center">
+                <span className="inline-flex items-center gap-1.5"><Wallet size={13} style={{ color: 'var(--primary)' }} /> Fund your wallet</span>
+                <span className="inline-flex items-center gap-1.5"><Receipt size={13} style={{ color: 'var(--primary)' }} /> Buy a plan + number</span>
+                <span className="inline-flex items-center gap-1.5"><CheckCircle2 size={13} style={{ color: 'var(--primary)' }} /> Track it all here</span>
+              </div>
+
+              <div className="mt-5 flex items-center gap-3 text-xs text-mute">
+                <Link to={`${basePath}/billing?tab=plans`} className="hover:underline" style={{ color: 'var(--primary)' }}>View Pricing</Link>
+                <span aria-hidden="true">•</span>
+                <Link to={`${basePath}/billing`} className="hover:underline" style={{ color: 'var(--primary)' }}>Learn about Billing</Link>
+              </div>
+            </div>
+          ) : (
+            <div className="animate-fade-up flex flex-col items-center text-center px-6 py-12">
+              <div className="w-14 h-14 flex items-center justify-center rounded-full" style={{ background: 'var(--surface-tint)' }}>
+                <Search className="w-6 h-6" style={{ color: 'var(--primary)' }} strokeWidth={1.5} />
+              </div>
+              <h3 className="mt-3 text-sm font-bold text-slate-900">No transactions match these filters</h3>
+              <p className="mt-1 text-xs text-mute max-w-xs">
+                You have {txns.length} transaction{txns.length === 1 ? '' : 's'} in total — try widening the date range or clearing a filter.
+              </p>
+              <button type="button" onClick={clearAll} className="btn-ghost text-sm mt-4">Clear filters</button>
+            </div>
+          )
+        )}
+
+        {txns !== null && groups.map(([key, rows]) => {
+          const groupTotal = rows.reduce((a, t) => a + (Number(t.amount) || 0), 0);
+          return (
+            <div className="txn-group" key={key}>
+              <div className="txn-group-header">
+                <span>{groupLabel(key)}</span>
+                <span className="txn-group-total">{money(groupTotal)}</span>
+              </div>
+              {rows.map((t) => {
+                const meta = kindMeta(t.type);
+                const Icon = meta.icon;
+                return (
+                  <div className="txn-row" key={t.id}>
+                    <div className={`txn-row-icon ${meta.swatch}`}><Icon size={16} /></div>
+                    <div className="min-w-0">
+                      <div className="txn-row-title truncate">{t.description || meta.label}</div>
+                      <div className="txn-row-meta">
+                        <span className="txn-row-kind">{meta.label}</span>
+                        <span className="txn-row-dot">·</span>
+                        <span>{fmtTime(t.date)}</span>
+                        <span className="txn-row-dot">·</span>
+                        <span className="truncate">{t.method || provider}</span>
+                        {t.ref && <span className="txn-row-dot">·</span>}
+                        <RefCell value={t.ref} />
                       </div>
                     </div>
-                  ) : (
-                    <div className="animate-fade-up flex flex-col items-center text-center px-6 py-12">
-                      <div className="w-14 h-14 flex items-center justify-center rounded-full" style={{ background: 'var(--surface-tint)' }}>
-                        <Receipt className="w-6 h-6" style={{ color: 'var(--primary)' }} strokeWidth={1.5} />
+                    <div className="text-right shrink-0">
+                      <div className={`txn-row-amount${meta.tone === 'in' ? ' txn-amount-in' : ''}`}>
+                        {t.amount ? money(t.amount) : '—'}
                       </div>
-                      <h3 className="mt-3 text-sm font-bold text-slate-900">No transactions in this date range</h3>
-                      <p className="mt-1 text-xs text-mute max-w-xs">
-                        {txns?.length ? `You have ${txns.length} transaction${txns.length === 1 ? '' : 's'} outside this range.` : 'Try widening the range to see more.'}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setRange({ from: '', to: '' })}
-                        className="btn-ghost text-sm mt-4"
-                      >
-                        View all time
-                      </button>
+                      <div className="mt-1"><StatusPill status={t.status} /></div>
                     </div>
-                  )}
-                </td>
-              </tr>
-            )}
-            {txns !== null && filtered.map((t) => {
-              const meta = kindMeta(t.type);
-              return (
-                <tr key={t.id} className="border-b border-slate-50 dark:border-slate-800/60 last:border-0">
-                  <td className="py-3 px-4 whitespace-nowrap text-slate-700 dark:text-slate-300">{fmtDate(t.date)}</td>
-                  <td className="py-3 px-4 whitespace-nowrap">
-                    <span className={`pill text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ${meta.pill}`}>{meta.label}</span>
-                  </td>
-                  <td className="py-3 px-4 text-slate-900 dark:text-slate-100 truncate">{t.description}</td>
-                  <td className="py-3 px-4 text-right font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                    {t.amount ? money(t.amount) : '—'}
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <StatusPill status={t.status} />
-                  </td>
-                  <td className="py-3 px-4 text-mute whitespace-nowrap truncate">{t.method || provider}</td>
-                  <td className="py-3 px-4">
-                    <RefCell value={t.ref} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
 
       {/* Footer count */}

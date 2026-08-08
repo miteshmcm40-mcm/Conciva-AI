@@ -255,18 +255,8 @@ h1, h2, h3, h4, h5, h6 {
      Scoped to src/surfaces/customer/Transactions.jsx only (also reused
      as-is under /admin and the reseller Customers surface, which mount
      the same component). */
-  .txn-summary {
-    display: flex;
-    align-items: stretch;
-    flex-wrap: wrap;
-    gap: 20px;
-  }
-  .txn-metric {
-    display: flex; align-items: center; gap: 14px;
-    flex: 1 1 200px; min-width: 200px;
-  }
   .txn-metric-icon {
-    width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+    width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0;
     display: grid; place-items: center;
     background: rgba(194,65,12,0.08); color: var(--primary);
   }
@@ -274,22 +264,115 @@ h1, h2, h3, h4, h5, h6 {
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
     font-weight: 700; color: var(--ink-3);
   }
-  .txn-metric-value {
-    margin-top: 2px; font-size: 24px; font-weight: 800; color: var(--ink);
-    line-height: 1.15;
+
+  /* Hero — one dominant "Total paid" figure + spend trend, plus two lighter
+     supporting stats to the side. */
+  .txn-hero {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    flex-wrap: wrap; gap: 28px;
   }
-  .txn-metric-divider { width: 1px; background: var(--line-2); align-self: stretch; }
-  @media (max-width: 639px) {
-    .txn-summary { flex-direction: column; gap: 14px; }
-    .txn-metric-divider { display: none; }
-    .txn-metric { padding-bottom: 14px; border-bottom: 1px solid var(--line-2); }
-    .txn-metric:last-child { padding-bottom: 0; border-bottom: none; }
+  .txn-hero-primary { flex: 1 1 240px; min-width: 220px; }
+  .txn-hero-amount {
+    margin-top: 6px; font-size: 40px; font-weight: 800; color: var(--ink);
+    line-height: 1.05; letter-spacing: -0.02em;
   }
+  .txn-hero-secondary { display: flex; gap: 28px; flex-wrap: wrap; }
+  .txn-hero-stat { display: flex; align-items: center; gap: 10px; }
+  .txn-hero-stat-value { margin-top: 2px; font-size: 19px; font-weight: 800; color: var(--ink); }
+
+  .txn-trend { display: flex; align-items: flex-end; gap: 3px; height: 40px; margin-top: 14px; max-width: 320px; }
+  .txn-trend-bar {
+    flex: 1; min-width: 3px; border-radius: 3px 3px 1px 1px;
+    background: linear-gradient(180deg, var(--grad-start), var(--grad-end));
+    opacity: 0.82; transition: opacity .15s;
+  }
+  .txn-trend-bar:hover { opacity: 1; }
+
+  /* Toolbar — compact single row (date popover trigger + kind select + search)
+     instead of a full filter card, plus a row of removable filter chips. */
+  .txn-toolbar-card { padding: 16px 20px; }
+  .txn-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .txn-toolbar-select { width: 100%; flex-shrink: 0; }
+  @media (min-width: 480px) { .txn-toolbar-select { width: 200px; } }
+
+  .txn-filter-trigger {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 14px; border-radius: 9999px;
+    border: 1px solid var(--line); background: #ffffff;
+    font-size: 13px; font-weight: 600; color: var(--ink-2);
+    cursor: pointer; white-space: nowrap;
+    transition: border-color .15s, background .15s, color .15s;
+  }
+  .txn-filter-trigger:hover { border-color: rgba(194,65,12,0.35); }
+  .txn-filter-trigger.active {
+    border-color: var(--primary); color: var(--primary);
+    background: rgba(194,65,12,0.06);
+  }
+
+  .txn-date-popover {
+    position: absolute; z-index: 50; top: calc(100% + 8px); left: 0;
+    width: 340px; max-width: min(90vw, 340px);
+    background: #ffffff; border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px;
+    box-shadow: 0 20px 50px -20px rgba(15,23,42,0.25), 0 4px 14px rgba(15,23,42,0.08);
+  }
+
+  .txn-chip-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-2);
+  }
+  .txn-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; padding: 5px 6px 5px 12px;
+    border-radius: 9999px; background: rgba(194,65,12,0.08); color: #9a3412;
+    border: 1px solid rgba(194,65,12,0.18);
+  }
+  .txn-chip button {
+    display: grid; place-items: center; width: 16px; height: 16px;
+    border-radius: 9999px; background: rgba(194,65,12,0.14); color: #9a3412;
+    border: none; cursor: pointer; transition: background .15s;
+  }
+  .txn-chip button:hover { background: rgba(194,65,12,0.25); }
+  .txn-chip-clear-all {
+    font-size: 12px; font-weight: 600; color: var(--ink-3);
+    background: none; border: none; cursor: pointer;
+    text-decoration: underline; text-underline-offset: 2px;
+  }
+  .txn-chip-clear-all:hover { color: var(--ink); }
+
+  /* Statement — day-grouped receipt rows replacing the old table. */
+  .txn-group-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: var(--surface-2);
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--ink-3); border-top: 1px solid var(--line-2);
+  }
+  .txn-group:first-child .txn-group-header { border-top: none; }
+  .txn-group-total { font-weight: 700; color: var(--ink-2); text-transform: none; letter-spacing: normal; font-size: 12px; }
+
+  .txn-row {
+    display: grid; grid-template-columns: auto 1fr auto;
+    align-items: center; gap: 14px;
+    padding: 14px 20px; border-top: 1px solid var(--line-2);
+    transition: background .15s;
+  }
+  .txn-group .txn-group-header + .txn-row { border-top: none; }
+  .txn-row:hover { background: rgba(194,65,12,0.025); }
+  .txn-row-icon { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; flex-shrink: 0; }
+  .txn-row-title { font-size: 14px; font-weight: 600; color: var(--ink); }
+  .txn-row-meta {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+    margin-top: 2px; font-size: 12px; color: var(--ink-3);
+  }
+  .txn-row-kind { font-weight: 600; color: var(--ink-3); white-space: nowrap; }
+  .txn-row-dot { color: var(--line); }
+  .txn-row-amount { font-size: 14px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+  .txn-amount-in { color: #059669; }
 
   .txn-ref-btn {
     display: inline-flex; align-items: center; gap: 6px;
     font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink-3);
-    background: none; border: none; cursor: pointer; padding: 3px 6px;
+    background: none; border: none; cursor: pointer; padding: 2px 5px;
     border-radius: 6px; max-width: 100%;
     transition: background .15s, color .15s;
   }
